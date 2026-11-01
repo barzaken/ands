@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, Gate, Engine, collectRefs, runTool, describe, type Ask, type Envelope } from '../src/index.ts';
+import { classify, Gate, Engine, collectRefs, runTool, describe, serial, agentId, type Ask, type Envelope } from '../src/index.ts';
 
 process.env.ANDS_HOME = `${process.env.TMPDIR ?? '/tmp'}/ands-test-${process.pid}`;
 
@@ -172,4 +172,37 @@ test('file actions: listing reads, the Trash always asks, the rest are changes',
   assert.equal((await gate.check({ verb: 'files_trash', value: 'a.png' })).allowed, false);
   assert.deepEqual(asked, ['files_trash']);
   assert.match(describe({ verb: 'files_trash', value: '3 files' }, 'he'), /לפח/);
+});
+
+test('in the background a step that needs real input runs again headed, one agent at a time', async () => {
+  const seen: string[] = [];
+  let inside = 0, most = 0;
+  const run = async (args: string[]): Promise<Envelope> => {
+    seen.push(args.join(' '));
+    if (!args.includes('--headed')) return { ok: false, error: { code: 'POLICY_DENIED', message: 'needs --headed', disposition: { retry: 'safe' } } };
+    inside++; most = Math.max(most, inside);
+    await new Promise((r) => setTimeout(r, 5));
+    inside--;
+    return { ok: true, data: {} };
+  };
+  const hands = serial();
+  const a = new Engine(run, ['--session', 's', '--agent-id', 'a'], { hands, background: true });
+  const b = new Engine(run, ['--session', 's', '--agent-id', 'b'], { hands, background: true });
+  const [x, y] = await Promise.all([a.press('return', 'Safari'), b.act('type', '@s:e1', 'hi')]);
+  assert.ok(x.ok && y.ok);
+  assert.equal(most, 1);
+  assert.ok(seen.includes('--session s --agent-id a --headed press return --app Safari'));
+  assert.ok(seen.includes('--session s --agent-id b --headed type @s:e1 hi'));
+  // A refusal for another reason is not retried, and a lone agent without hands never goes headed.
+  const plain = new Engine(run);
+  assert.equal((await plain.press('return')).ok, false);
+  assert.ok(!seen.includes('--headed press return'));
+});
+
+test('agent names become engine agent ids', () => {
+  assert.equal(agentId('mail pdfs!'), 'mail-pdfs');
+  assert.match(agentId('מייל'), /^agent-[a-z0-9]+$/);
+  assert.notEqual(agentId('מייל'), agentId('קבצים'));
+  assert.equal(agentId(undefined), 'main');
+  assert.equal(agentId('x'.repeat(80)).length, 64);
 });

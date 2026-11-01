@@ -2,7 +2,7 @@
 // package has no runtime dependencies. Approvals go to the person through MCP elicitation when the
 // client supports it, and through the OS dialog box otherwise.
 import { createInterface } from 'node:readline';
-import { Engine, Gate, TOOLS, runTool, runEngine, log, loadConfig, type Ask, type Answer } from '@ands/core';
+import { Agents, AGENT_PARAM, agentId, Gate, TOOLS, runTool, runEngine, log, loadConfig, type Ask, type Answer, type Runner, type ToolSpec } from '@ands/core';
 import { dialogApprover, question } from './ask.ts';
 import { VERSION } from './version.ts';
 
@@ -10,8 +10,12 @@ const SUPPORTED = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 type Send = (msg: object) => void;
 
+/** The tools as outside agents see them: each takes an optional `agent`, so several jobs can run at once. */
+export const MCP_TOOLS: ToolSpec[] = TOOLS.map((t) => ({ ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, agent: AGENT_PARAM } } }));
+
 export class McpServer {
-  engine: Engine;
+  /** One engine session for this server, with a cursor per agent. */
+  agents: Agents;
   gate: Gate;
   send: Send;
   canElicit = false;
@@ -19,11 +23,11 @@ export class McpServer {
   pending = new Map<number, (v: any) => void>();
   lang: 'he' | 'en';
 
-  constructor(send: Send, engine = new Engine(runEngine)) {
+  constructor(send: Send, run: Runner = runEngine) {
     const cfg = loadConfig();
     this.lang = cfg.lang;
     this.send = send;
-    this.engine = engine;
+    this.agents = new Agents(run, { style: ['--accent', '#E8643A'] });
     const dialog = dialogApprover(this.lang);
     this.gate = new Gate({ trust: cfg.trust, blocked: cfg.blocked, approver: (ask) => (this.canElicit ? this.elicit(ask) : dialog(ask)) });
   }
@@ -58,16 +62,17 @@ export class McpServer {
         const v = msg.params?.protocolVersion;
         this.canElicit = !!msg.params?.capabilities?.elicitation;
         return reply({ protocolVersion: SUPPORTED.includes(v) ? v : SUPPORTED[0], capabilities: { tools: {} }, serverInfo: { name: 'ands', version: VERSION },
-          instructions: 'ands gives you hands on this computer. Use ands_apps to find an app, ands_look to see it, ands_act/ands_press to act, and ands_look again to check. Steps that send, pay, delete or install wait for the person.' });
+          instructions: 'ands gives you hands on this computer. Use ands_apps to find an app, ands_look to see it, ands_act/ands_press to act, and ands_look again to check. Steps that send, pay, delete or install wait for the person. Work runs in the background, so the person can keep using the computer. For several independent jobs, run them at once (for example one subagent each) and pass each job its own `agent` name: each gets its own cursor. Keep steps that depend on each other in one job.' });
       }
       case 'notifications/initialized': case 'notifications/cancelled': return;
       case 'ping': return reply({});
-      case 'tools/list': return reply({ tools: TOOLS });
+      case 'tools/list': return reply({ tools: MCP_TOOLS });
       case 'tools/call': {
         const { name, arguments: args = {} } = msg.params ?? {};
         if (!TOOLS.some((t) => t.name === name)) return fail(-32602, `Unknown tool ${name}`);
         this.gate.task ??= 'mcp session';
-        const r = await runTool(name, args, { engine: this.engine, gate: this.gate, source: 'mcp', log });
+        const engine = await this.agents.engine(typeof args.agent === 'string' ? args.agent : undefined);
+        const r = await runTool(name, args, { engine, gate: this.gate, source: args.agent ? `mcp:${agentId(args.agent)}` : 'mcp', log });
         const content: any[] = [{ type: 'text', text: r.text }];
         if (r.image) content.push({ type: 'image', data: r.image.data, mimeType: r.image.mimeType });
         return reply({ content, isError: !r.ok });
@@ -81,6 +86,8 @@ export class McpServer {
 export function serveStdio() {
   const server = new McpServer((m) => process.stdout.write(JSON.stringify(m) + '\n'));
   const rl = createInterface({ input: process.stdin });
+  // The agent is gone: take its cursors off the screen.
+  rl.on('close', () => { server.agents.end(); });
   rl.on('line', (line) => {
     if (!line.trim()) return;
     let msg: any;
