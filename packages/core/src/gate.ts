@@ -2,7 +2,9 @@
 // reads (a web page, an email, a prompt) can argue its way past it.
 import { classify, isBlocked, DEFAULT_BLOCKED_APPS, type Action, type Tier } from './policy.ts';
 
-/** How much ands asks. `ask_all`: every change. `ask_important`: one OK for the plan, then only sensitive steps.
+/** How much ands asks. `ask_all`: every change. `ask_important` (default): only sensitive steps, the ones that
+ *  send, pay, delete, install or can't be undone; ordinary clicks and typing go through, for ands' own plan and
+ *  for an outside agent alike.
  *  `autopilot`: nothing is asked; the person switched this on themselves in the app or CLI settings (no tool can).
  *  Do-not-touch apps stay blocked in every mode. */
 export type Trust = 'ask_all' | 'ask_important' | 'autopilot';
@@ -36,7 +38,7 @@ export class Gate {
     const tier = classify(action);
     if (isBlocked(action.app, this.blocked)) return { allowed: false, tier, reason: `${action.app} is on the do-not-touch list.` };
     if (tier === 'read' || this.trust === 'autopilot') return { allowed: true, tier };
-    if (tier === 'change' && this.planApproved && this.trust === 'ask_important') return { allowed: true, tier };
+    if (tier === 'change' && (this.planApproved || this.trust === 'ask_important')) return { allowed: true, tier };
     const answer = await this.approver({ action, tier, task: this.task });
     if (answer === 'no') return { allowed: false, tier, reason: 'The person said no.' };
     if (answer === 'yes_for_task' && tier === 'change') this.planApproved = true;

@@ -22,6 +22,8 @@ export function collectRefs(tree: any, into = new Map<string, RefInfo>()): Map<s
   return into;
 }
 
+const PHYSICAL = new Set(['click', 'double-click', 'right-click', 'type', 'clear', 'scroll']);
+
 /** A thin, typed face over the engine that remembers the refs it has seen. */
 export class Engine {
   refs = new Map<string, RefInfo>();
@@ -35,8 +37,13 @@ export class Engine {
     this.pointTo = o.pointTo ?? false;
   }
 
-  async snapshot(o: { app?: string; windowId?: string; root?: string; interactive?: boolean; compact?: boolean; skeleton?: boolean } = {}) {
+  /** The field ands last typed into, so Return there can be told apart (search vs. message). */
+  lastTyped?: RefInfo;
+
+  async snapshot(o: { app?: string; windowId?: string; root?: string; interactive?: boolean; compact?: boolean; skeleton?: boolean; timeoutMs?: number } = {}) {
     const a = ['snapshot'];
+    // Browsers and other Chromium apps need longer than the engine's 3 s default to show a page.
+    a.push('--timeout-ms', String(o.timeoutMs ?? 8000));
     if (o.app) a.push('--app', o.app);
     if (o.windowId) a.push('--window-id', o.windowId);
     if (o.root) a.push('--root', o.root);
@@ -47,10 +54,21 @@ export class Engine {
     if (e.ok) collectRefs(e.data?.tree, this.refs);
     return e;
   }
+  /** Elements whose name or text contains `text` (and of `role`, when given), with refs to act on. */
+  async find(o: { app?: string; windowId?: string; text: string; role?: string }) {
+    const a = ['find', '--text', o.text, '--limit', '20'];
+    if (o.app) a.push('--app', o.app);
+    if (o.windowId) a.push('--window-id', o.windowId);
+    if (o.role) a.push('--role', o.role);
+    const e = await this.run(a);
+    if (e.ok) for (const m of e.data?.matches ?? []) if (typeof m.ref_id === 'string') this.refs.set(m.ref_id, { role: String(m.role ?? ''), name: String(m.name ?? '') });
+    return e;
+  }
   /** One action on a ref; `verb` is an engine command name (click, type, select, toggle, scroll ...). */
   async act(verb: string, ref: string, value?: string, extra: string[] = []) {
     // Only reached from inside an action the gate already allowed; a failed hover never stops the action.
-    if (this.pointTo) await this.run(['hover', ref]).catch(() => undefined);
+    // Clicks, typing and scrolling move the pointer themselves when headed; other actions get a hover first.
+    if (this.pointTo && !PHYSICAL.has(verb)) await this.run(['hover', ref]).catch(() => undefined);
     const a = [verb, ref];
     if (value !== undefined) a.push(value);
     return this.run([...a, ...extra]);
