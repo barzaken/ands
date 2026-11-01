@@ -1,4 +1,4 @@
-# Tests the andsh package on every OS, and publishes it to npm when Bar pushes a tag like npm-v0.1.0.
+# Tests the andsh package on every OS, and publishes it to npm on a push to main when npm lacks that version.
 name: npm package
 on:
   push:
