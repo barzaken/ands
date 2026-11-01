@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, Gate, Engine, collectRefs, runTool, type Ask, type Envelope } from '../src/index.ts';
+import { classify, Gate, Engine, collectRefs, runTool, describe, type Ask, type Envelope } from '../src/index.ts';
 
 process.env.ANDS_HOME = `${process.env.TMPDIR ?? '/tmp'}/ands-test-${process.pid}`;
 
@@ -157,4 +157,16 @@ test('look with text finds elements and remembers their refs for the gate', asyn
   assert.equal(r.ok, true);
   assert.deepEqual(seen[0], ['find', '--text', 'Download', '--limit', '20', '--app', 'Google Chrome', '--role', 'button']);
   assert.deepEqual(engine.refs.get('@f:e3'), { role: 'button', name: 'Download' });
+});
+
+test('file actions: listing reads, the Trash always asks, the rest are changes', async () => {
+  assert.equal(classify({ verb: 'files_list' }), 'read');
+  assert.equal(classify({ verb: 'files_trash', value: '200 files' }), 'sensitive');
+  for (const verb of ['files_move', 'files_copy', 'files_mkdir', 'files_open', 'open_url']) assert.equal(classify({ verb }), 'change');
+  const asked: string[] = [];
+  const gate = new Gate({ approver: async (a) => { asked.push(a.action.verb); return 'no'; } });
+  assert.equal((await gate.check({ verb: 'files_move', value: 'a.png → Shots' })).allowed, true);
+  assert.equal((await gate.check({ verb: 'files_trash', value: 'a.png' })).allowed, false);
+  assert.deepEqual(asked, ['files_trash']);
+  assert.match(describe({ verb: 'files_trash', value: '3 files' }, 'he'), /לפח/);
 });

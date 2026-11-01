@@ -49,6 +49,11 @@ const hebrewWord = (w: string) => new RegExp(`(^|[^${HE}])[ובלמכשה]{0,2}$
 
 export function classify(a: Action): Tier {
   if (READ.has(a.verb)) return 'read';
+  // The desktop app's own file actions (no terminal): listing reads, moving to the Trash always asks,
+  // making a folder, moving, copying and opening a link are changes that can be undone.
+  if (a.verb === 'files_list') return 'read';
+  if (a.verb === 'files_trash') return 'sensitive';
+  if (['files_move', 'files_copy', 'files_mkdir', 'files_open', 'open_url'].includes(a.verb)) return 'change';
   if (a.verb === 'clipboard_get' || a.verb === 'screenshot') return 'sensitive'; // can expose private content to the model
   if (a.verb === 'close') return 'change';
   if (a.verb === 'launch') return 'change';
