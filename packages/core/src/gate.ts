@@ -57,6 +57,7 @@ export function describe(a: Action, lang: 'he' | 'en' = 'en'): string {
     clipboard_get: 'לקרוא את מה שהעתקת', clipboard_set: 'להעתיק טקסט ללוח', screenshot: `לצלם את המסך${where}`,
     files_trash: `להעביר לפח: ${a.value ?? ''}`, files_move: `להעביר: ${a.value ?? ''}`, files_copy: `להעתיק: ${a.value ?? ''}`,
     files_mkdir: `ליצור תיקייה: ${a.value ?? ''}`, files_open: `לפתוח: ${a.value ?? ''}`, open_url: `לפתוח את ${a.value ?? ''}${where}`,
+    files_empty_trash: 'לרוקן את הפח', files_download: `להוריד: ${a.value ?? ''}`,
   };
   const en: Record<string, string> = {
     click: `Click ${what}${where}`, 'double-click': `Double-click ${what}${where}`, type: `Type "${a.value ?? ''}" into ${what}`,
@@ -65,6 +66,7 @@ export function describe(a: Action, lang: 'he' | 'en' = 'en'): string {
     clipboard_get: 'Read what you copied', clipboard_set: 'Copy text to the clipboard', screenshot: `Take a screenshot${where}`,
     files_trash: `Move to the Trash: ${a.value ?? ''}`, files_move: `Move: ${a.value ?? ''}`, files_copy: `Copy: ${a.value ?? ''}`,
     files_mkdir: `Make a folder: ${a.value ?? ''}`, files_open: `Open: ${a.value ?? ''}`, open_url: `Open ${a.value ?? ''}${where}`,
+    files_empty_trash: 'Empty the Trash', files_download: `Download: ${a.value ?? ''}`,
   };
   return (lang === 'he' ? he : en)[a.verb] ?? `${a.verb} ${what}${where}`;
 }
