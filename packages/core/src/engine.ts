@@ -24,6 +24,20 @@ export function collectRefs(tree: any, into = new Map<string, RefInfo>()): Map<s
 
 const PHYSICAL = new Set(['click', 'double-click', 'right-click', 'type', 'clear', 'scroll']);
 
+/** Runs one thing at a time, in the order asked. */
+export type Lock = <T>(f: () => Promise<T>) => Promise<T>;
+export function serial(): Lock {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T>(f: () => Promise<T>) => {
+    const r = tail.then(f, f);
+    tail = r.catch(() => undefined);
+    return r;
+  };
+}
+
+/** The engine refused a step headless because it needs real keys or the pointer, and nothing was delivered. */
+const needsHands = (e: Envelope) => !e.ok && e.error?.code === 'POLICY_DENIED' && e.error?.disposition?.retry === 'safe';
+
 /** A thin, typed face over the engine that remembers the refs it has seen. */
 export class Engine {
   refs = new Map<string, RefInfo>();
@@ -32,9 +46,25 @@ export class Engine {
    *  watches the real pointer move and keys reach fields that only take physical input. */
   /** Moves the real pointer onto the element before each action, so the person sees what is being selected or changed. */
   pointTo: boolean;
-  constructor(run: Runner, globals: string[] = [], o: { pointTo?: boolean } = {}) {
+  /** In the background (several agents at once, or the person still working), steps run headless: through
+   *  accessibility, without the real pointer or keyboard. A step that has no headless path (a key press, typing
+   *  on Windows, a double-click) runs again with real input, holding `hands` so only one agent at a time uses
+   *  the real keyboard and pointer. */
+  hands?: Lock;
+  /** One of several agents: a key press must name its app, since unscoped keys reach whatever is in front. */
+  background: boolean;
+  constructor(run: Runner, globals: string[] = [], o: { pointTo?: boolean; hands?: Lock; background?: boolean } = {}) {
     this.run = globals.length ? (args, timeoutMs) => run([...globals, ...args], timeoutMs) : run;
     this.pointTo = o.pointTo ?? false;
+    this.hands = o.hands;
+    this.background = o.background ?? false;
+  }
+
+  /** Runs a step; in the background, one that needs real input runs again holding the hands. */
+  async physical(args: string[]): Promise<Envelope> {
+    const e = await this.run(args);
+    const hands = this.hands;
+    return hands && needsHands(e) ? hands(() => this.run(['--headed', ...args])) : e;
   }
 
   /** The field ands last typed into, so Return there can be told apart (search vs. message). */
@@ -73,9 +103,13 @@ export class Engine {
     if (this.pointTo && !PHYSICAL.has(verb)) await this.run(['hover', ref]).catch(() => undefined);
     const a = [verb, ref];
     if (value !== undefined) a.push(value);
-    return this.run([...a, ...extra]);
+    return this.physical([...a, ...extra]);
   }
-  press(combo: string, app?: string) { return this.run(app ? ['press', combo, '--app', app] : ['press', combo]); }
+  press(combo: string, app?: string): Promise<Envelope> {
+    // Unscoped keys go to whatever app is in front, which in the background is the person's own.
+    if (this.background && !app) return Promise.resolve({ ok: false, error: { code: 'INVALID_ARGS', message: 'Working in the background: say which app gets the key (app).', disposition: { retry: 'safe' } } });
+    return this.physical(app ? ['press', combo, '--app', app] : ['press', combo]);
+  }
   listApps() { return this.run(['list-apps']); }
   listWindows(app?: string) { return this.run(app ? ['list-windows', '--app', app] : ['list-windows']); }
   launch(app: string) { return this.run(['launch', app, '--activate']); }

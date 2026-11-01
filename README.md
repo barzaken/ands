@@ -25,6 +25,14 @@ claude mcp add ands -- node /abs/path/to/packages/cli/bin/ands.mjs mcp
 npm run ands -- mcp --config cursor         # config for Cursor, Claude Desktop, VS Code, Codex
 ```
 
+## Several jobs at once
+
+ands works in the background, through accessibility, so you can keep using the computer. Every tool
+takes an optional `agent` name: give each independent job its own name (one per subagent, say) and they
+run in parallel, each with its own cursor on the screen. Steps that depend on each other ("download the
+PDFs, then file them, then send them") stay under one name. A step with no background path (a key press,
+or typing on Windows) briefly uses the real keyboard, one agent at a time.
+
 ## Approvals
 
 Every action is sorted before it runs, outside the model:
