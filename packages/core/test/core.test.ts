@@ -162,6 +162,9 @@ test('look with text finds elements and remembers their refs for the gate', asyn
 test('file actions: listing reads, the Trash always asks, the rest are changes', async () => {
   assert.equal(classify({ verb: 'files_list' }), 'read');
   assert.equal(classify({ verb: 'files_trash', value: '200 files' }), 'sensitive');
+  for (const verb of ['files_search', 'computer_info']) assert.equal(classify({ verb }), 'read');
+  for (const verb of ['files_empty_trash', 'files_download']) assert.equal(classify({ verb }), 'sensitive');
+  for (const verb of ['files_rename', 'files_organize', 'files_zip', 'files_unzip', 'files_images', 'computer_volume', 'computer_dark_mode', 'computer_screenshot', 'computer_settings']) assert.equal(classify({ verb }), 'change');
   for (const verb of ['files_move', 'files_copy', 'files_mkdir', 'files_open', 'open_url']) assert.equal(classify({ verb }), 'change');
   const asked: string[] = [];
   const gate = new Gate({ approver: async (a) => { asked.push(a.action.verb); return 'no'; } });
