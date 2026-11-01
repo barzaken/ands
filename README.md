@@ -6,7 +6,7 @@ Hands for AI agents. ands operates the apps on your computer (click, type, open,
 |---|---|---|
 | Core | `packages/core` | Approval gate, tools, engine wrapper, remote link |
 | CLI + MCP | `packages/cli` | The `andsh` npm package (the name `ands` belongs to someone else): `ands mcp` and `ands link` |
-| Desktop app | [ands.sh/download](https://ands.sh/download) | ands for everyone (Tauri). Its code is private; it is built and released here by `.github/workflows/desktop.yml` |
+| Desktop app | [ands.sh/download](https://ands.sh/download) | ands for everyone (mac, Windows, Linux) |
 | Engine | [agent-desktop](https://github.com/vercel-labs/agent-desktop) (Apache-2.0, by Vercel Labs; used unmodified) | Rust CLI that reads and operates desktop apps |
 
 ## Try it
