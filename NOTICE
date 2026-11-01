@@ -1,0 +1,17 @@
+ands
+Copyright 2026 the ands authors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes agent-desktop (https://github.com/vercel-labs/agent-desktop),
+licensed under the Apache License, Version 2.0. The agent-desktop binary is shipped
+unmodified. ands is an independent project and is not affiliated with, sponsored by,
+or endorsed by Vercel, Inc. or the agent-desktop authors.
+
+Other third-party software included in ands, with its licenses, is listed in
+THIRD_PARTY_NOTICES.md.
+
+Product names, logos and brands shown by ands or on ands.sh (for example Claude,
+ChatGPT, Codex, Cursor, VS Code, Gmail, WhatsApp) are trademarks of their respective
+owners and are used only to identify those products. Their use does not imply any
+affiliation with or endorsement by them.

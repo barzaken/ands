@@ -1,0 +1,12 @@
+{
+  "name": "@ands/core",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts"
+  },
+  "description": "The ands approval gate, tools and engine wrapper."
+}

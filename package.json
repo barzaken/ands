@@ -1,0 +1,20 @@
+{
+  "name": "ands-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "node --test packages/*/test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "ands": "node packages/cli/bin/ands.mjs",
+    "build:npm": "node scripts/build-npm.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "typescript": "6.0.3"
+  }
+}

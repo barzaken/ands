@@ -1,0 +1,56 @@
+# Tests the andsh package on every OS, and publishes it to npm when Bar pushes a tag like npm-v0.1.0.
+name: npm package
+on:
+  push:
+    branches: [main]
+    tags: ['npm-v*']
+    paths: ['packages/**', 'scripts/**', '.github/workflows/npm.yml']
+  pull_request:
+    paths: ['packages/**', 'scripts/**', '.github/workflows/npm.yml']
+  workflow_dispatch:
+    inputs:
+      publish: { description: 'Publish to npm', type: boolean, default: false }
+
+jobs:
+  test:
+    strategy:
+      matrix: { os: [ubuntu-latest, macos-15, windows-latest] }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22.18', cache: npm }
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck && npm test
+      - name: Build and run the packed package
+        shell: bash
+        run: |
+          npm run build:npm
+          cd packages/cli/pkg && npm pack && cd -
+          mkdir -p "$RUNNER_TEMP/try" && cd "$RUNNER_TEMP/try" && npm init -y >/dev/null
+          npm i --no-audit --no-fund "$GITHUB_WORKSPACE"/packages/cli/pkg/andsh-*.tgz
+          npx andsh --version
+          npx andsh doctor || true
+
+  publish:
+    # Publishes the version in packages/cli/package.json: on a push to main when npm doesn't have it yet,
+    # on an npm-v* tag, or by hand with the publish switch.
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/npm-v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22.18', registry-url: 'https://registry.npmjs.org' }
+      - id: want
+        env: { EVENT: '${{ github.event_name }}', PUBLISH: '${{ inputs.publish }}', REF_TYPE: '${{ github.ref_type }}' }
+        run: |
+          V=$(node -p "require('./packages/cli/package.json').version")
+          if [ "$EVENT" = workflow_dispatch ] && [ "$PUBLISH" != true ]; then echo "go=no" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if npm view "andsh@$V" version >/dev/null 2>&1; then echo "andsh@$V is already on npm"; echo "go=no" >> "$GITHUB_OUTPUT"; else echo "go=yes" >> "$GITHUB_OUTPUT"; fi
+      - if: steps.want.outputs.go == 'yes'
+        run: npm ci --no-audit --no-fund && npm run build:npm
+      - if: steps.want.outputs.go == 'yes'
+        run: npm publish packages/cli/pkg --access public --provenance
+        env: { NODE_AUTH_TOKEN: '${{ secrets.NPM_TOKEN }}' }

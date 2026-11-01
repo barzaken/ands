@@ -1,0 +1,13 @@
+{
+  "name": "andsh",
+  "version": "0.2.0",
+  "description": "Hands for AI agents: an MCP server and CLI that operate your computer's apps, with your approval.",
+  "type": "module",
+  "bin": { "ands": "bin/ands.mjs", "andsh": "bin/ands.mjs" },
+  "license": "Apache-2.0",
+  "homepage": "https://ands.sh",
+  "repository": { "type": "git", "url": "git+https://github.com/barzaken/ands.git" },
+  "keywords": ["mcp", "computer-use", "desktop", "accessibility", "agent", "cli"],
+  "engines": { "node": ">=22.18" },
+  "dependencies": { "@ands/core": "*" }
+}
