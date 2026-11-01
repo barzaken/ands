@@ -24,9 +24,9 @@ const SENSITIVE_WORDS = [
   'pay', 'buy', 'purchase', 'checkout', 'order', 'subscribe', 'donate', 'transfer',
   'delete', 'remove', 'erase', 'trash', 'empty trash', 'discard', 'uninstall', 'format', 'reset',
   'install', 'allow', 'grant', 'sign in', 'log in', 'login', 'sign up', 'accept', 'confirm', 'agree',
-  'שלח', 'שליחה', 'פרסם', 'שתף', 'השב', 'הגש',
+  'שלח', 'שלוח', 'שליחה', 'פרסם', 'שתף', 'השב', 'הגש',
   'שלם', 'תשלום', 'קנה', 'רכישה', 'הזמן', 'הזמנה', 'העבר', 'העברה', 'תרום',
-  'מחק', 'מחיקה', 'הסר', 'רוקן', 'אפס', 'התקן', 'התקנה', 'אשר', 'אישור', 'התחבר', 'הרשמה', 'הסכם', 'מסכים',
+  'מחק', 'מחוק', 'מחיקה', 'הסר', 'הסרה', 'רוקן', 'אפס', 'התקן', 'התקנה', 'אשרו', 'אישור', 'התחבר', 'הרשמה', 'הסכם', 'מסכים',
 ];
 
 /** Apps ands never touches unless the person removes them from this list. */
@@ -37,11 +37,15 @@ const hasWord = (text: string, words: string[]) => {
   return words.some((w) => {
     const i = t.indexOf(w);
     if (i < 0) return false;
-    // A Latin word must stand alone ("send" yes, "sender" no). Hebrew words take prefixes (ו, ל, ש), so a substring is enough.
+    // A Latin word must stand alone ("send" yes, "sender" no).
     if (/[a-z]/.test(w)) return !/[a-z]/.test(t[i - 1] ?? ' ') && !/[a-z]/.test(t[i + w.length] ?? ' ');
-    return true;
+    // A Hebrew word may carry up to two prefix letters (ו, ה, ל, ב, מ, כ, ש) and a short ending, but must not sit
+    // inside another word: "הסרה" and "ולמחוק" yes, "הסרט" (a film) and "העברית" no.
+    return hebrewWord(w).test(t);
   });
 };
+const HE = 'א-ת';
+const hebrewWord = (w: string) => new RegExp(`(^|[^${HE}])[ובלמכשה]{0,2}${w}(ה|ו|י|ים|ות|ת|נו|תי)?($|[^${HE}])`);
 
 export function classify(a: Action): Tier {
   if (READ.has(a.verb)) return 'read';
@@ -50,6 +54,9 @@ export function classify(a: Action): Tier {
   if (a.verb === 'launch') return 'change';
   if (a.verb === 'press') {
     // Return/Enter often submits a form or sends a message.
+    // Return in a search or address field only searches or opens a page; anywhere else it may send or submit.
+    // The field is the one ands last typed into, as the screen names it.
+    if (/^(return|enter)$/i.test(a.value ?? '') && a.target && isSearchField(a.target)) return 'change';
     if (/^(return|enter|cmd\+return|ctrl\+return|cmd\+enter|ctrl\+enter)$/i.test(a.value ?? '')) return 'sensitive';
     if (/^(cmd|ctrl)\+(backspace|delete|d|w|q)$/i.test(a.value ?? '') || /^shift\+delete$/i.test(a.value ?? '')) return 'sensitive';
     return 'change';
@@ -58,6 +65,14 @@ export function classify(a: Action): Tier {
   if (a.target && /password|secure/i.test(a.target.role)) return 'sensitive';
   return 'change';
 }
+
+/** A one-line search or address field. A multi-line box (where messages are written) never counts. */
+export function isSearchField(t: { role: string; name: string }): boolean {
+  if (/area|document|editor|group/i.test(t.role)) return false;
+  if (/search/i.test(t.role)) return true;
+  return /textfield|combobox|textbox|text field|edit/i.test(t.role) && hasSearchName(t.name);
+}
+const hasSearchName = (name: string) => /\b(search|find|address|url|go to)\b/i.test(name) || /(חיפוש|חפש|כתובת)/.test(name);
 
 export function isBlocked(app: string | undefined, blocked: string[]): boolean {
   if (!app) return false;

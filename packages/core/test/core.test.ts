@@ -37,7 +37,6 @@ test('an approved plan covers changes but never sensitive steps', async () => {
 test('ask_all asks for every change; a no blocks it; blocked apps are refused without asking', async () => {
   const r = recorder('no');
   const g = new Gate({ approver: r.approver, trust: 'ask_all' });
-  g.planApproved = true;
   const v = await g.check({ verb: 'click', target: { role: 'button', name: 'Open' } });
   assert.equal(v.allowed, false);
   assert.equal(r.asked.length, 1);
@@ -55,9 +54,19 @@ test('autopilot asks nothing, even for sensitive steps, but blocked apps stay bl
   assert.equal(r.asked.length, 0);
 });
 
+test('ask_important asks only sensitive steps, even with no plan (an outside agent)', async () => {
+  const r = recorder('yes');
+  const g = new Gate({ approver: r.approver });
+  await g.check({ verb: 'click', target: { role: 'link', name: 'YouTube' } });
+  await g.check({ verb: 'type', value: 'lofi' });
+  assert.equal(r.asked.length, 0);
+  await g.check({ verb: 'click', target: { role: 'button', name: 'Send' } });
+  assert.equal(r.asked.length, 1);
+});
+
 test('yes_for_task stops asking about changes for the rest of the task', async () => {
   const r = recorder('yes_for_task');
-  const g = new Gate({ approver: r.approver });
+  const g = new Gate({ approver: r.approver, trust: 'ask_all' });
   await g.check({ verb: 'click' });
   await g.check({ verb: 'type', value: 'x' });
   assert.equal(r.asked.length, 1);
@@ -111,4 +120,41 @@ test('pointTo moves the pointer onto the element only after the gate allowed the
   const yes = new Gate({ trust: 'ask_all', approver: async () => 'yes' });
   await runTool('ands_act', { action: 'select', ref: '@s:e1', value: 'a.png', why: 'x' }, { engine, gate: yes, source: 'test' });
   assert.deepEqual(seen, ['hover @s:e1', 'select @s:e1 a.png']);
+});
+
+test('Hebrew words count only as whole words: a film title or "Hebrew" is not a delete or a transfer', () => {
+  assert.equal(classify({ verb: 'click', target: { role: 'link', name: 'הסרט החדש של השנה' } }), 'change');
+  assert.equal(classify({ verb: 'click', target: { role: 'button', name: 'עברית' } }), 'change');
+  assert.equal(classify({ verb: 'click', target: { role: 'link', name: 'כאשר נפגשנו' } }), 'change');
+  assert.equal(classify({ verb: 'click', target: { role: 'button', name: 'הסרה' } }), 'sensitive');
+  assert.equal(classify({ verb: 'click', target: { role: 'button', name: 'ולמחוק' } }), 'sensitive');
+  assert.equal(classify({ verb: 'click', target: { role: 'button', name: 'אישור' } }), 'sensitive');
+});
+
+test('Return after typing into a search field is a change; in a message box it still asks', async () => {
+  assert.equal(classify({ verb: 'press', value: 'return', target: { role: 'combobox', name: 'Search' } }), 'change');
+  assert.equal(classify({ verb: 'press', value: 'return', target: { role: 'textfield', name: 'חיפוש' } }), 'change');
+  assert.equal(classify({ verb: 'press', value: 'return', target: { role: 'textarea', name: 'Search messages' } }), 'sensitive');
+  assert.equal(classify({ verb: 'press', value: 'return', target: { role: 'textfield', name: 'Type a message' } }), 'sensitive');
+  assert.equal(classify({ verb: 'press', value: 'cmd+return', target: { role: 'combobox', name: 'Search' } }), 'sensitive');
+  // Through the tools: the field comes from the screen, and only the field typed into last.
+  const engine = new Engine(async (args) => ({ ok: true, data: args[0] === 'snapshot' ? { tree: { ref_id: '@s:e1', role: 'combobox', name: 'Search', children: [{ ref_id: '@s:e2', role: 'textarea', name: 'Message' }] } } : {} }));
+  const { asked, approver } = recorder('yes');
+  const gate = new Gate({ trust: 'ask_all', approver });
+  await runTool('ands_look', { app: 'Google Chrome' }, { engine, gate, source: 'test' });
+  await runTool('ands_act', { action: 'type', ref: '@s:e1', value: 'lofi', why: 'x' }, { engine, gate, source: 'test' });
+  await runTool('ands_press', { combo: 'return', why: 'x' }, { engine, gate, source: 'test' });
+  assert.deepEqual(asked.map((a) => a.tier), ['change', 'change']);
+  await runTool('ands_press', { combo: 'return', why: 'x' }, { engine, gate, source: 'test' });
+  assert.equal(asked.at(-1)!.tier, 'sensitive');
+});
+
+test('look with text finds elements and remembers their refs for the gate', async () => {
+  const seen: string[][] = [];
+  const engine = new Engine(async (args) => { seen.push(args); return { ok: true, data: { matches: [{ ref_id: '@f:e3', role: 'button', name: 'Download' }] } }; });
+  const gate = new Gate({ trust: 'autopilot', approver: async () => 'yes' });
+  const r = await runTool('ands_look', { app: 'Google Chrome', text: 'Download', role: 'button' }, { engine, gate, source: 'test' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen[0], ['find', '--text', 'Download', '--limit', '20', '--app', 'Google Chrome', '--role', 'button']);
+  assert.deepEqual(engine.refs.get('@f:e3'), { role: 'button', name: 'Download' });
 });

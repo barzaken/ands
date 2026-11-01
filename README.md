@@ -30,8 +30,8 @@ npm run ands -- mcp --config cursor         # config for Cursor, Claude Desktop,
 Every action is sorted before it runs, outside the model:
 
 - **read** (look at a window, list apps): goes through
-- **change** (click, type, open): covered by the approved plan, or asked one by one (`ands trust ask_all`)
-- **sensitive** (send, pay, delete, install, sign in, Enter, reading the clipboard, screenshots): always asks
+- **change** (click, type, open, Enter in a search box): goes through, or asked one by one with `ands trust ask_all`
+- **sensitive** (send, pay, delete, install, sign in, Enter elsewhere, reading the clipboard, screenshots): always asks
 
 MCP clients that support elicitation get the question inside the client; otherwise the OS dialog asks. Every action is logged to `~/.ands/history.jsonl` (`ands history`).
 
