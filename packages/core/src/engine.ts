@@ -42,8 +42,10 @@ export class Engine {
 
   async snapshot(o: { app?: string; windowId?: string; root?: string; interactive?: boolean; compact?: boolean; skeleton?: boolean; timeoutMs?: number } = {}) {
     const a = ['snapshot'];
-    // Browsers and other Chromium apps need longer than the engine's 3 s default to show a page.
-    a.push('--timeout-ms', String(o.timeoutMs ?? 8000));
+    // Browsers and other Chromium apps need longer than the engine's 3 s default to show a page, but a
+    // big page uses the whole deadline on every look, so it stays short: a cut tree says so, and a
+    // look with text (find) gets one element without reading the page.
+    a.push('--timeout-ms', String(o.timeoutMs ?? 5000));
     if (o.app) a.push('--app', o.app);
     if (o.windowId) a.push('--window-id', o.windowId);
     if (o.root) a.push('--root', o.root);
