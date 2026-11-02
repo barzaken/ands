@@ -236,3 +236,35 @@ test('the model reads a screen as short lines, and its short refs reach the engi
   await runTool('ands_look', { app: 'Mail', root: '@e3' }, { engine, gate, source: 'test' });
   assert.ok(seen.at(-1)!.includes('@s9:e3'));
 });
+
+test('per-app rules: block refuses, ask asks every change, auto skips ordinary steps only, money apps never auto', async () => {
+  const asked: string[] = [];
+  const gate = new Gate({ trust: 'ask_important', apps: { Notes: 'block', Excel: 'ask', Finder: 'auto', 'Bank Leumi': 'auto' }, approver: async (a) => { asked.push(`${a.action.app}:${a.tier}`); return 'yes'; } });
+  const click = (app: string, name = 'Next') => ({ verb: 'click', app, target: { role: 'button', name } });
+  assert.equal((await gate.check(click('Notes'))).allowed, false);
+  assert.equal((await gate.check(click('Excel'))).allowed, true);
+  assert.equal((await gate.check(click('Finder'))).allowed, true);
+  assert.equal((await gate.check(click('Finder', 'Delete'))).allowed, true);
+  // ask_important lets ordinary steps through anyway; with ask_all, "auto" skips them but a money app still asks.
+  const strict = new Gate({ trust: 'ask_all', apps: { Finder: 'auto', 'Bank Leumi': 'auto' }, approver: async (a) => { asked.push(`strict ${a.action.app}:${a.tier}`); return 'yes'; } });
+  await strict.check(click('Finder'));
+  await strict.check(click('Bank Leumi'));
+  assert.deepEqual(asked, ['Excel:change', 'Finder:sensitive', 'strict Bank Leumi:change']);
+});
+
+test('"yes, always" covers the same ordinary step in the same app, never sensitive steps or money apps', async () => {
+  const saved: string[] = [];
+  let n = 0;
+  const gate = new Gate({ trust: 'ask_all', onAlways: (r) => saved.push(`${r.app}:${r.verb}`), approver: async () => { n++; return 'yes_always'; } });
+  const click = (app: string, name = 'Next') => ({ verb: 'click', app, target: { role: 'button', name } });
+  await gate.check(click('Excel'));
+  await gate.check(click('Excel'));
+  assert.equal(n, 1);
+  await gate.check(click('Excel', 'Send'));
+  await gate.check(click('Excel', 'Send'));
+  assert.equal(n, 3);
+  await gate.check(click('PayPal'));
+  await gate.check(click('PayPal'));
+  assert.equal(n, 5);
+  assert.deepEqual(saved, ['Excel:click']);
+});

@@ -1,6 +1,6 @@
 // The approval gate. It sits between the model's tool calls and the engine, so nothing the model
 // reads (a web page, an email, a prompt) can argue its way past it.
-import { classify, isBlocked, DEFAULT_BLOCKED_APPS, type Action, type Tier } from './policy.ts';
+import { classify, isBlocked, appMode, isMoneyApp, sameApp, DEFAULT_BLOCKED_APPS, type Action, type Tier, type AppMode, type AlwaysRule } from './policy.ts';
 
 /** How much ands asks. `ask_all`: every change. `ask_important` (default): only sensitive steps, the ones that
  *  send, pay, delete, install or can't be undone; ordinary clicks and typing go through, for ands' own plan and
@@ -11,7 +11,8 @@ export type Trust = 'ask_all' | 'ask_important' | 'autopilot';
 export const TRUSTS: readonly Trust[] = ['ask_all', 'ask_important', 'autopilot'];
 
 export type Ask = { action: Action; tier: Tier; task?: string };
-export type Answer = 'yes' | 'no' | 'yes_for_task';
+/** `yes_always`: yes, and don't ask again for this kind of step in this app (ordinary steps only, never money apps). */
+export type Answer = 'yes' | 'no' | 'yes_for_task' | 'yes_always';
 
 /** Shows the question to a person: desktop popup, MCP elicitation, terminal prompt, or a WhatsApp message via lvlz. */
 export type Approver = (ask: Ask) => Promise<Answer>;
@@ -22,26 +23,56 @@ export class Gate {
   trust: Trust;
   approver: Approver;
   blocked: string[];
+  /** The person's per-app rules and "always" answers. Set by the person only (settings, CLI), never by a tool.
+   *  They can only skip a question for an ordinary step or add one: sensitive steps always ask, and money apps
+   *  are never "auto" and never "always". */
+  apps: Record<string, AppMode>;
+  always: AlwaysRule[];
+  /** Called when the person answers "yes, always", so the host can save the rule. */
+  onAlways?: (rule: AlwaysRule) => void;
   /** Set when the person approves the whole plan, or says "yes to everything in this task". Never covers sensitive steps. */
   planApproved = false;
   task?: string;
+  /** Apps set to "ask" that the person said "yes to every change in this task" for. */
+  private okApps = new Set<string>();
 
-  constructor(o: { trust?: Trust; approver: Approver; blocked?: string[] }) {
+  constructor(o: { trust?: Trust; approver: Approver; blocked?: string[]; apps?: Record<string, AppMode>; always?: AlwaysRule[]; onAlways?: (rule: AlwaysRule) => void }) {
     this.trust = o.trust ?? 'ask_important';
     this.approver = o.approver;
     this.blocked = o.blocked ?? DEFAULT_BLOCKED_APPS;
+    this.apps = o.apps ?? {};
+    this.always = o.always ?? [];
+    this.onAlways = o.onAlways;
   }
 
-  startTask(task: string) { this.task = task; this.planApproved = false; }
+  startTask(task: string) { this.task = task; this.planApproved = false; this.okApps.clear(); }
+
+  /** Whether the person's own rules already answer this ordinary step. */
+  private covered(action: Action): boolean {
+    const app = action.app;
+    if (!app || isMoneyApp(app)) return false;
+    if (appMode(this.apps, app) === 'auto') return true;
+    if (this.okApps.has(app.toLowerCase())) return true;
+    return this.always.some((r) => sameApp(app, r.app) && r.verb === action.verb);
+  }
 
   async check(action: Action): Promise<Verdict> {
     const tier = classify(action);
-    if (isBlocked(action.app, this.blocked)) return { allowed: false, tier, reason: `${action.app} is on the do-not-touch list.` };
+    const mode = appMode(this.apps, action.app);
+    if (isBlocked(action.app, this.blocked) || mode === 'block') return { allowed: false, tier, reason: `${action.app} is on the do-not-touch list.` };
     if (tier === 'read' || this.trust === 'autopilot') return { allowed: true, tier };
-    if (tier === 'change' && (this.planApproved || this.trust === 'ask_important')) return { allowed: true, tier };
+    if (tier === 'change' && (this.planApproved || this.covered(action) || (this.trust === 'ask_important' && mode !== 'ask'))) return { allowed: true, tier };
     const answer = await this.approver({ action, tier, task: this.task });
     if (answer === 'no') return { allowed: false, tier, reason: 'The person said no.' };
-    if (answer === 'yes_for_task' && tier === 'change') this.planApproved = true;
+    if (answer === 'yes_for_task' && tier === 'change') {
+      if (mode === 'ask' && action.app) this.okApps.add(action.app.toLowerCase());
+      else this.planApproved = true;
+    }
+    if (answer === 'yes_always' && tier === 'change' && action.app && !isMoneyApp(action.app) && !this.covered(action)) {
+      const rule: AlwaysRule = { app: action.app, verb: action.verb, at: new Date().toISOString() };
+      this.always.push(rule);
+      this.onAlways?.(rule);
+    }
     return { allowed: true, tier };
   }
 }

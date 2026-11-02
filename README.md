@@ -41,6 +41,12 @@ Every action is sorted before it runs, outside the model:
 - **change** (click, type, open, Enter in a search box): goes through, or asked one by one with `ands trust ask_all`
 - **sensitive** (send, pay, delete, install, sign in, Enter elsewhere, reading the clipboard, screenshots): always asks
 
+Your own rules per app sit on top, and can only skip a question for an ordinary step or add one:
+
+- `andsh apps Excel ask`: ask before every change in Excel. `auto`: ordinary steps without asking. `block`: don't touch it. `clear`: no rule.
+- "Always for this" on an approval saves that kind of step in that app; `andsh always` lists them and `andsh always revoke N` takes one back.
+- Sensitive steps always ask, and money apps (banks, payments, wallets) are never `auto` or "always".
+
 MCP clients that support elicitation get the question inside the client; otherwise the OS dialog asks. Every action is logged to `~/.ands/history.jsonl` (`ands history`).
 
 ## Rules
