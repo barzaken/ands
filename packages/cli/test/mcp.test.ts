@@ -22,8 +22,9 @@ test('initialize, list tools, and ask through elicitation before a sensitive cli
   assert.equal(sent[0].result.protocolVersion, '2025-06-18');
   assert.equal(sent[0].result.serverInfo.name, 'ands');
   await s.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.deepEqual(sent[1].result.tools.map((t: any) => t.name), ['ands_look', 'ands_act', 'ands_press', 'ands_mouse', 'ands_type', 'ands_wait', 'ands_apps', 'ands_clipboard', 'ands_screenshot']);
-  assert.ok(sent[1].result.tools.every((t: any) => t.inputSchema.properties.agent));
+  assert.deepEqual(sent[1].result.tools.map((t: any) => t.name), ['ands_look', 'ands_act', 'ands_press', 'ands_mouse', 'ands_type', 'ands_wait', 'ands_apps', 'ands_clipboard', 'ands_screenshot',
+    'ands_phones', 'ands_phone_look', 'ands_phone_tap', 'ands_phone_type', 'ands_phone_swipe', 'ands_phone_button', 'ands_phone_apps', 'ands_phone_screenshot']);
+  assert.ok(sent[1].result.tools.filter((t: any) => !t.name.startsWith('ands_phone')).every((t: any) => t.inputSchema.properties.agent));
   await s.handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'ands_look', arguments: { app: 'Mail' } } });
   assert.equal(sent[2].result.isError, false);
 
@@ -83,4 +84,19 @@ test('the real binary speaks MCP over stdio', async () => {
   const res = JSON.parse((await line).trim());
   p.kill();
   assert.equal(res.result.protocolVersion, '2025-03-26');
+});
+
+test('phone tools reach the phone through the same gate', async () => {
+  const sent: any[] = [];
+  const { Phones } = await import('@ands/core');
+  const adb = async (args: string[]) => args.join(' ') === 'devices -l' ? { ok: true, out: 'P1 device model:Pixel\n' } : { ok: true, out: '' };
+  const s = new McpServer((m) => sent.push(m), engine(), new Phones({ adb }));
+  await s.handle({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } });
+  await s.handle({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ands_phones', arguments: {} } });
+  assert.match(sent[1].result.content[0].text, /Android "Pixel" id P1: ready/);
+  // A tap on a spot ands has never seen is sensitive: with no elicitation, the OS dialog would ask. Autopilot is off, so it is not silently allowed.
+  s.gate.approver = async () => 'no';
+  await s.handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'ands_phone_tap', arguments: { x: 10, y: 10, why: 'x' } } });
+  assert.equal(sent[2].result.isError, true);
+  assert.match(sent[2].result.content[0].text, /said no/);
 });

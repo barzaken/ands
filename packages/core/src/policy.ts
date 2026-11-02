@@ -30,7 +30,9 @@ const SENSITIVE_WORDS = [
 ];
 
 /** Apps ands never touches unless the person removes them from this list. */
-export const DEFAULT_BLOCKED_APPS = ['1Password', 'Bitwarden', 'Keychain Access', 'LastPass', 'KeePassXC'];
+export const DEFAULT_BLOCKED_APPS = ['1Password', 'Bitwarden', 'Keychain Access', 'LastPass', 'KeePassXC',
+  // The same managers on a phone, by app id (Bitwarden and LastPass are caught by their names above).
+  'com.onepassword', 'com.agilebits.onepassword', 'keepass2android', 'com.apple.Passwords'];
 
 const hasWord = (text: string, words: string[]) => {
   const t = ` ${text.toLowerCase()} `;
@@ -55,6 +57,7 @@ export function classify(a: Action): Tier {
   // Moving to or emptying the Trash, and downloading from the internet, always ask.
   if (['files_trash', 'files_empty_trash', 'files_download'].includes(a.verb)) return 'sensitive';
   if (/^(files|computer)_/.test(a.verb) || a.verb === 'open_url') return 'change';
+  if (/^phone_/.test(a.verb)) return classifyPhone(a);
   if (a.verb === 'clipboard_get' || a.verb === 'screenshot') return 'sensitive'; // can expose private content to the model
   if (a.verb === 'close') return 'change';
   if (a.verb === 'launch') return 'change';
@@ -78,6 +81,23 @@ export function classify(a: Action): Tier {
   }
   if (a.target && hasWord(`${a.target.name}`, SENSITIVE_WORDS) && ['click', 'double-click', 'press', 'toggle', 'check', 'select'].includes(a.verb)) return 'sensitive';
   if (a.target && /password|secure/i.test(a.target.role)) return 'sensitive';
+  return 'change';
+}
+
+/** The person's phone. Same lines as the computer: what a tap lands on is judged from the phone's own
+ *  screen (never the model's words), and an unknown spot, Enter outside a search field, a picture of the
+ *  screen, and a long press on something unknown always ask. */
+function classifyPhone(a: Action): Tier {
+  if (['phone_list', 'phone_look', 'phone_find', 'phone_apps', 'phone_current'].includes(a.verb)) return 'read';
+  if (a.verb === 'phone_screenshot') return 'sensitive';
+  if (a.verb === 'phone_tap' || a.verb === 'phone_long_press') {
+    if (!a.target) return 'sensitive';
+    if (hasWord(a.target.name, SENSITIVE_WORDS) || /password|secure/i.test(a.target.role)) return 'sensitive';
+    return 'change';
+  }
+  if (a.verb === 'phone_enter') return a.target && isSearchField(a.target) ? 'change' : 'sensitive';
+  if (a.verb === 'phone_type') return a.target && /password|secure/i.test(a.target.role) ? 'sensitive' : 'change';
+  // Swipes, Home, Back, switching apps, opening an app: they move around, they don't send.
   return 'change';
 }
 

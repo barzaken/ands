@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { DEFAULT_BLOCKED_APPS } from './policy.ts';
 import type { Trust } from './gate.ts';
 
-export type Config = { trust: Trust; lang: 'he' | 'en'; blocked: string[] };
+/** iphones: WebDriverAgent addresses of the person's iPhones, e.g. http://192.168.1.20:8100. */
+export type Config = { trust: Trust; lang: 'he' | 'en'; blocked: string[]; iphones?: string[] };
 
 export const home = (env = process.env) => env.ANDS_HOME || join(homedir(), '.ands');
 

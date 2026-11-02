@@ -1,6 +1,6 @@
 # ands
 
-Hands for AI agents. ands operates the apps on your computer (click, type, open, send) through the operating system's accessibility tree, and waits for your approval before anything that matters.
+Hands for AI agents. ands operates the apps on your computer (click, type, open, send) through the operating system's accessibility tree, and your own phone too (Android and iPhone), and waits for your approval before anything that matters.
 
 | Part | Path | What it is |
 |---|---|---|
@@ -33,13 +33,35 @@ run in parallel, each with its own cursor on the screen. Steps that depend on ea
 PDFs, then file them, then send them") stay under one name. A step with no background path (a key press,
 or typing on Windows) briefly uses the real keyboard, one agent at a time.
 
+## Your phone too
+
+The same agent can work on your own phone, connected to this computer: no cloud phone, nothing installed
+from a store, no account. The phone tools (`ands_phones`, `ands_phone_look`, `ands_phone_tap`,
+`ands_phone_type`, `ands_phone_swipe`, `ands_phone_button`, `ands_phone_apps`, `ands_phone_screenshot`) go
+through the same approvals: a tap on Send, Pay or Delete, Enter in a message, a spot ands has not seen, and a
+picture of the screen always ask.
+
+- **Android**: turn on Developer options > USB debugging, plug the phone in and tap Allow. Over Wi-Fi:
+  `ands phone wifi IP:PORT CODE` once (Wireless debugging > Pair with code), then `ands phone wifi IP:PORT`.
+  ands uses the adb you have, or fetches Google's platform-tools once into `~/.ands` (checked against the
+  SHA-1 in Google's SDK index; [Android SDK License](https://developer.android.com/studio/terms)). Typing over
+  adb is English letters, digits and symbols only.
+- **iPhone**: install [WebDriverAgent](https://github.com/appium/WebDriverAgent) (BSD-3, by Appium) on the
+  phone once from a Mac with Xcode, start it, then `ands phone iphone http://<phone IP>:8100`. Typing works in
+  any language. A free Apple ID signs it for 7 days; a developer account for a year.
+
+```sh
+npx andsh phone                 # phones ands can reach
+npx andsh phone look            # what ands sees on the phone
+```
+
 ## Approvals
 
 Every action is sorted before it runs, outside the model:
 
 - **read** (look at a window, list apps): goes through
 - **change** (click, type, open, Enter in a search box): goes through, or asked one by one with `ands trust ask_all`
-- **sensitive** (send, pay, delete, install, sign in, Enter elsewhere, reading the clipboard, screenshots): always asks
+- **sensitive** (send, pay, delete, install, sign in, Enter elsewhere, reading the clipboard, screenshots, a tap or click on a spot ands has not seen): always asks
 
 MCP clients that support elicitation get the question inside the client; otherwise the OS dialog asks. Every action is logged to `~/.ands/history.jsonl` (`ands history`).
 

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import {
-  Engine, Gate, runEngine, ensureEngine, loadConfig, home, log, pair, revokeLink, serveRemote,
+  Engine, Gate, runEngine, ensureEngine, loadConfig, home, log, pair, revokeLink, serveRemote, nodePhones,
   SUPABASE_URL, authHeaders, requestCode, verifyCode, fresh, type Session, type Ask, type Answer,
 } from '@ands/core';
 import { terminalApprover } from './ask.ts';
@@ -47,7 +47,7 @@ export async function connect(saved = read<Saved>('remote.json')) {
   const gate = new Gate({ trust: cfg.trust, blocked: cfg.blocked, approver: remoteApprover(terminalApprover(cfg.lang)) });
   let revoked = false;
   await serveRemote({
-    base: FUNCTIONS, link: saved, engine: new Engine(runEngine), gate, signal: ac.signal,
+    base: FUNCTIONS, link: saved, engine: new Engine(runEngine), gate, phones: nodePhones(), signal: ac.signal,
     onState: (s) => {
       if (s === 'revoked') revoked = true;
       err(cfg.lang === 'he'
