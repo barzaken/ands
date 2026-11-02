@@ -1,5 +1,5 @@
 // The `ands` command: hands for AI agents. `ands mcp` serves any MCP agent; `ands link` connects a cloud agent.
-import { Engine, runEngine, ensureEngine, loadConfig, saveConfig, readLog, TRUSTS, type Trust } from '@ands/core';
+import { Engine, runEngine, ensureEngine, loadConfig, saveConfig, readLog, isMoneyApp, TRUSTS, type Trust, type AppMode } from '@ands/core';
 import { createInterface } from 'node:readline/promises';
 import { serveStdio, clientConfig } from './mcp.ts';
 import { VERSION } from './version.ts';
@@ -22,6 +22,11 @@ const HELP = `ands ${VERSION}: hands for AI agents
   ands mcp                   run as an MCP server on stdio (your agent drives, ands asks you)
   ands look [--app NAME]     what ands sees in an app right now
   ands trust ask_all|ask_important|autopilot   autopilot: no questions (do-not-touch apps stay blocked)
+  ands apps                  your rule for each app
+  ands apps NAME auto|ask|block|clear   auto: ordinary steps without asking (money apps: never);
+                             ask: before every change; block: don't touch. Sensitive steps always ask.
+  ands always                the "always for this" answers you gave
+  ands always revoke N|all   take one back (by its number) or all of them
   ands lang he|en
   ands history [--last N]    every action, who asked, and whether you approved
   ands mcp --config CLIENT   print setup for claude-code, cursor, claude-desktop, vscode, codex
@@ -46,6 +51,34 @@ export async function main(argv = process.argv.slice(2)) {
       if (rest[0] === 'autopilot' && !(await autopilotConsent())) return out('Autopilot stays off.');
       saveConfig({ trust: rest[0] as Trust });
       return out(`Trust: ${rest[0]}`);
+    }
+    case 'apps': {
+      const c = loadConfig();
+      const [name, mode] = rest;
+      if (!name) {
+        const rows = Object.entries(c.apps);
+        if (!rows.length) return out('No app rules. ands asks before sensitive steps in every app.');
+        for (const [a, m] of rows) out(`${a.padEnd(24)} ${m}`);
+        return;
+      }
+      if (mode === 'clear') { const apps = { ...c.apps }; delete apps[name]; saveConfig({ apps }); return out(`${name}: no rule`); }
+      if (mode !== 'auto' && mode !== 'ask' && mode !== 'block') { err('Use: ands apps NAME auto|ask|block|clear'); process.exitCode = 1; return; }
+      if (mode === 'auto' && isMoneyApp(name)) { err(`${name} handles money, so it always asks.`); process.exitCode = 1; return; }
+      saveConfig({ apps: { ...c.apps, [name]: mode as AppMode } });
+      return out(`${name}: ${mode}`);
+    }
+    case 'always': {
+      const c = loadConfig();
+      if (rest[0] === 'revoke') {
+        if (rest[1] === 'all') { saveConfig({ always: [] }); return out('Every "always" answer is gone.'); }
+        const n = Number(rest[1]);
+        if (!Number.isInteger(n) || n < 1 || n > c.always.length) { err('Use: ands always revoke N|all'); process.exitCode = 1; return; }
+        saveConfig({ always: c.always.filter((_, i) => i !== n - 1) });
+        return out(`Revoked ${n}.`);
+      }
+      if (!c.always.length) return out('No "always" answers yet.');
+      c.always.forEach((r, i) => out(`${String(i + 1).padStart(3)}  ${r.app.padEnd(24)} ${r.verb}${r.at ? `  (${r.at.slice(0, 10)})` : ''}`));
+      return;
     }
     case 'lang': if (rest[0] !== 'he' && rest[0] !== 'en') return out(loadConfig().lang); saveConfig({ lang: rest[0] }); return out(`Language: ${rest[0]}`);
     case 'history': {

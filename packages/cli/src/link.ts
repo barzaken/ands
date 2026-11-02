@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { hostname } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import {
-  Engine, Gate, runEngine, ensureEngine, loadConfig, home, log, pair, revokeLink, serveRemote,
+  Engine, Gate, saveAlways, runEngine, ensureEngine, loadConfig, home, log, pair, revokeLink, serveRemote,
   SUPABASE_URL, authHeaders, requestCode, verifyCode, fresh, type Session, type Ask, type Answer,
 } from '@ands/core';
 import { terminalApprover } from './ask.ts';
@@ -44,7 +44,7 @@ export async function connect(saved = read<Saved>('remote.json')) {
   await ensureEngine();
   const ac = new AbortController();
   process.once('SIGINT', () => ac.abort());
-  const gate = new Gate({ trust: cfg.trust, blocked: cfg.blocked, approver: remoteApprover(terminalApprover(cfg.lang)) });
+  const gate = new Gate({ trust: cfg.trust, blocked: cfg.blocked, apps: cfg.apps, always: cfg.always, onAlways: saveAlways, approver: remoteApprover(terminalApprover(cfg.lang)) });
   let revoked = false;
   await serveRemote({
     base: FUNCTIONS, link: saved, engine: new Engine(runEngine), gate, signal: ac.signal,

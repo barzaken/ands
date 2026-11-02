@@ -89,6 +89,24 @@ export function isSearchField(t: { role: string; name: string }): boolean {
 }
 const hasSearchName = (name: string) => /\b(search|find|address|url|go to)\b/i.test(name) || /(חיפוש|חפש|כתובת)/.test(name);
 
+/** The person's own rule for one app: work without asking, ask before every change, or don't touch. */
+export type AppMode = 'auto' | 'ask' | 'block';
+/** A "yes, always" the person gave for one kind of ordinary step in one app. Never covers sensitive steps. */
+export type AlwaysRule = { app: string; verb: string; at?: string };
+
+/** Apps where "without asking" is never offered: banks, payments, wallets. */
+const MONEY = /bank|paypal|venmo|revolut|wise|stripe|coinbase|binance|wallet|בנק|לאומי|הפועלים|דיסקונט|מזרחי|ביט|פייבוקס|max|ישראכרט|כאל/i;
+export const isMoneyApp = (app: string) => MONEY.test(app);
+export const sameApp = (a?: string, b?: string) => !!a && !!b && (a.toLowerCase() === b.toLowerCase() || a.toLowerCase().includes(b.toLowerCase()));
+
+/** The person's rule for an app, if any. A money app is never "auto": that reads as "ask". */
+export function appMode(apps: Record<string, AppMode> | undefined, app?: string): AppMode | undefined {
+  if (!app) return;
+  const hit = Object.entries(apps ?? {}).find(([name]) => sameApp(app, name));
+  if (!hit) return;
+  return hit[1] === 'auto' && isMoneyApp(app) ? 'ask' : hit[1];
+}
+
 export function isBlocked(app: string | undefined, blocked: string[]): boolean {
   if (!app) return false;
   const a = app.toLowerCase();

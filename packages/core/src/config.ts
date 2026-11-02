@@ -2,15 +2,16 @@
 import { mkdirSync, readFileSync, writeFileSync, appendFileSync, chmodSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_BLOCKED_APPS } from './policy.ts';
+import { DEFAULT_BLOCKED_APPS, type AppMode, type AlwaysRule } from './policy.ts';
 import type { Trust } from './gate.ts';
 
-export type Config = { trust: Trust; lang: 'he' | 'en'; blocked: string[] };
+/** `apps` and `always`: the person's per-app rules and "yes, always" answers (see Gate). */
+export type Config = { trust: Trust; lang: 'he' | 'en'; blocked: string[]; apps: Record<string, AppMode>; always: AlwaysRule[] };
 
 export const home = (env = process.env) => env.ANDS_HOME || join(homedir(), '.ands');
 
 export function loadConfig(env = process.env): Config {
-  const base: Config = { trust: 'ask_important', lang: 'en', blocked: DEFAULT_BLOCKED_APPS };
+  const base: Config = { trust: 'ask_important', lang: 'en', blocked: DEFAULT_BLOCKED_APPS, apps: {}, always: [] };
   let saved: Partial<Config> = {};
   try { saved = JSON.parse(readFileSync(join(home(env), 'config.json'), 'utf8')); } catch {}
   const c = { ...base, ...saved };
@@ -27,6 +28,13 @@ export function saveConfig(patch: Partial<Config>, env = process.env): Config {
   writeFileSync(file, JSON.stringify(next, null, 2));
   try { chmodSync(file, 0o600); } catch {}
   return loadConfig(env);
+}
+
+/** Saves one "yes, always" answer, unless the same rule is already there. */
+export function saveAlways(rule: AlwaysRule, env = process.env): void {
+  const c = loadConfig(env);
+  if (c.always.some((r) => r.app.toLowerCase() === rule.app.toLowerCase() && r.verb === rule.verb)) return;
+  saveConfig({ always: [...c.always, rule] }, env);
 }
 
 export type { LogEntry } from './tools.ts';

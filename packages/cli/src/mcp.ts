@@ -2,7 +2,7 @@
 // package has no runtime dependencies. Approvals go to the person through MCP elicitation when the
 // client supports it, and through the OS dialog box otherwise.
 import { createInterface } from 'node:readline';
-import { Agents, AGENT_PARAM, agentId, Gate, TOOLS, runTool, runEngine, log, loadConfig, type Ask, type Answer, type Runner, type ToolSpec } from '@ands/core';
+import { Agents, AGENT_PARAM, agentId, Gate, TOOLS, runTool, runEngine, log, loadConfig, saveAlways, isMoneyApp, type Ask, type Answer, type Runner, type ToolSpec } from '@ands/core';
 import { dialogApprover, question } from './ask.ts';
 import { VERSION } from './version.ts';
 
@@ -29,7 +29,7 @@ export class McpServer {
     this.send = send;
     this.agents = new Agents(run, { style: ['--accent', '#E8643A'] });
     const dialog = dialogApprover(this.lang);
-    this.gate = new Gate({ trust: cfg.trust, blocked: cfg.blocked, approver: (ask) => (this.canElicit ? this.elicit(ask) : dialog(ask)) });
+    this.gate = new Gate({ trust: cfg.trust, blocked: cfg.blocked, apps: cfg.apps, always: cfg.always, onAlways: saveAlways, approver: (ask) => (this.canElicit ? this.elicit(ask) : dialog(ask)) });
   }
 
   request(method: string, params: object): Promise<any> {
@@ -39,14 +39,16 @@ export class McpServer {
   }
 
   async elicit(ask: Ask): Promise<Answer> {
-    const options = ask.tier === 'sensitive' ? ['yes', 'no'] : ['yes', 'yes_for_task', 'no'];
+    // "Always" is offered only for an ordinary step in a named app that is not a money app.
+    const always = ask.tier === 'change' && !!ask.action.app && !isMoneyApp(ask.action.app);
+    const options = ask.tier === 'sensitive' ? ['yes', 'no'] : always ? ['yes', 'yes_always', 'yes_for_task', 'no'] : ['yes', 'yes_for_task', 'no'];
     const r = await this.request('elicitation/create', {
       message: `ands wants to: ${question(ask, this.lang)}`,
-      requestedSchema: { type: 'object', properties: { answer: { type: 'string', title: 'Allow?', enum: options, enumNames: options.map((o) => ({ yes: 'Yes', yes_for_task: 'Yes to every change in this task', no: 'No' })[o]) } }, required: ['answer'] },
+      requestedSchema: { type: 'object', properties: { answer: { type: 'string', title: 'Allow?', enum: options, enumNames: options.map((o) => ({ yes: 'Yes', yes_always: `Always for this in ${ask.action.app}`, yes_for_task: 'Yes to every change in this task', no: 'No' } as Record<string, string>)[o]) } }, required: ['answer'] },
     }).catch(() => null);
     if (r?.action !== 'accept') return 'no';
     const a = r.content?.answer;
-    return a === 'yes' || (a === 'yes_for_task' && ask.tier !== 'sensitive') ? a : 'no';
+    return a === 'yes' || (a === 'yes_for_task' && ask.tier !== 'sensitive') || (a === 'yes_always' && always) ? a : 'no';
   }
 
   async handle(msg: any): Promise<void> {

@@ -2,7 +2,7 @@
 // a question in the terminal, or the operating system's own dialog box.
 import { createInterface } from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
-import { describe, type Ask, type Answer } from '@ands/core';
+import { describe, isMoneyApp, type Ask, type Answer } from '@ands/core';
 
 const TIER = { he: { change: 'שינוי', sensitive: 'רגיש', read: 'קריאה' }, en: { change: 'change', sensitive: 'sensitive', read: 'read' } };
 
@@ -12,15 +12,18 @@ export function question(ask: Ask, lang: 'he' | 'en') {
   return `${what} [${TIER[lang][ask.tier]}]${why}`;
 }
 
-/** Terminal prompt: y = yes, a = yes to every change in this task (never sensitive ones), anything else = no. */
+/** Terminal prompt: y = yes, a = yes to every change in this task, l = always for this step in this app
+ *  (never for sensitive steps or money apps), anything else = no. */
 export function terminalApprover(lang: 'he' | 'en', input = process.stdin, output = process.stderr) {
   return async (ask: Ask): Promise<Answer> => {
     const rl = createInterface({ input, output });
-    const hint = ask.tier === 'sensitive' ? '[y/N]' : '[y/a/N]';
+    const always = ask.tier === 'change' && !!ask.action.app && !isMoneyApp(ask.action.app);
+    const hint = ask.tier === 'sensitive' ? '[y/N]' : always ? '[y/a/l/N]' : '[y/a/N]';
     const a = (await rl.question(`\n? ${question(ask, lang)}\n  ${hint} `)).trim().toLowerCase();
     rl.close();
     if (a === 'y' || a === 'yes' || a === 'כ' || a === 'כן') return 'yes';
     if ((a === 'a' || a === 'all') && ask.tier !== 'sensitive') return 'yes_for_task';
+    if ((a === 'l' || a === 'always') && always) return 'yes_always';
     return 'no';
   };
 }
