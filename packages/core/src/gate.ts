@@ -34,7 +34,7 @@ export class Gate {
   planApproved = false;
   task?: string;
   /** Apps set to "ask" that the person said "yes to every change in this task" for. */
-  private okApps = new Set<string>();
+  #okApps = new Set<string>();
 
   constructor(o: { trust?: Trust; approver: Approver; blocked?: string[]; apps?: Record<string, AppMode>; always?: AlwaysRule[]; onAlways?: (rule: AlwaysRule) => void }) {
     this.trust = o.trust ?? 'ask_important';
@@ -45,14 +45,14 @@ export class Gate {
     this.onAlways = o.onAlways;
   }
 
-  startTask(task: string) { this.task = task; this.planApproved = false; this.okApps.clear(); }
+  startTask(task: string) { this.task = task; this.planApproved = false; this.#okApps.clear(); }
 
   /** Whether the person's own rules already answer this ordinary step. */
   private covered(action: Action): boolean {
     const app = action.app;
     if (!app || isMoneyApp(app)) return false;
     if (appMode(this.apps, app) === 'auto') return true;
-    if (this.okApps.has(app.toLowerCase())) return true;
+    if (this.#okApps.has(app.toLowerCase())) return true;
     return this.always.some((r) => sameApp(app, r.app) && r.verb === action.verb);
   }
 
@@ -65,7 +65,7 @@ export class Gate {
     const answer = await this.approver({ action, tier, task: this.task });
     if (answer === 'no') return { allowed: false, tier, reason: 'The person said no.' };
     if (answer === 'yes_for_task' && tier === 'change') {
-      if (mode === 'ask' && action.app) this.okApps.add(action.app.toLowerCase());
+      if (mode === 'ask' && action.app) this.#okApps.add(action.app.toLowerCase());
       else this.planApproved = true;
     }
     if (answer === 'yes_always' && tier === 'change' && action.app && !isMoneyApp(action.app) && !this.covered(action)) {
