@@ -57,7 +57,13 @@ export function describe(a: Action, lang: 'he' | 'en' = 'en'): string {
     clipboard_get: 'לקרוא את מה שהעתקת', clipboard_set: 'להעתיק טקסט ללוח', screenshot: `לצלם את המסך${where}`,
     files_trash: `להעביר לפח: ${a.value ?? ''}`, files_move: `להעביר: ${a.value ?? ''}`, files_copy: `להעתיק: ${a.value ?? ''}`,
     files_mkdir: `ליצור תיקייה: ${a.value ?? ''}`, files_open: `לפתוח: ${a.value ?? ''}`, open_url: `לפתוח את ${a.value ?? ''}${where}`,
-    files_empty_trash: 'לרוקן את הפח', files_download: `להוריד: ${a.value ?? ''}`,
+    files_empty_trash: 'לרוקן את הפח', files_download: `להוריד: ${a.value ?? ''}`, files_write: `ליצור קובץ: ${a.value ?? ''}`,
+    'triple-click': `ללחוץ שלוש פעמים על ${what}${where}`, 'right-click': `ללחוץ קליק ימני על ${what}${where}`, hover: `להצביע על ${what}${where}`,
+    type_here: `להקליד ״${a.value ?? ''}״${where}`,
+    mouse_click: `ללחוץ ${a.target ? `על ${what}` : `במקום ${a.value ?? ''} במסך`}${where}`, 'mouse_double-click': `ללחוץ פעמיים ${a.target ? `על ${what}` : `במקום ${a.value ?? ''} במסך`}${where}`,
+    'mouse_triple-click': `ללחוץ שלוש פעמים ${a.target ? `על ${what}` : `במקום ${a.value ?? ''} במסך`}${where}`, 'mouse_right-click': `ללחוץ קליק ימני ${a.target ? `על ${what}` : `במקום ${a.value ?? ''} במסך`}${where}`,
+    'mouse_middle-click': `ללחוץ בגלגלת ${a.target ? `על ${what}` : `במקום ${a.value ?? ''} במסך`}${where}`, mouse_drag: `לגרור ${a.target ? `אל ${what}` : `במסך (${a.value ?? ''})`}${where}`,
+    mouse_move: `להזיז את העכבר${where}`, mouse_scroll: `לגלול${where}`,
   };
   const en: Record<string, string> = {
     click: `Click ${what}${where}`, 'double-click': `Double-click ${what}${where}`, type: `Type "${a.value ?? ''}" into ${what}`,
@@ -66,7 +72,13 @@ export function describe(a: Action, lang: 'he' | 'en' = 'en'): string {
     clipboard_get: 'Read what you copied', clipboard_set: 'Copy text to the clipboard', screenshot: `Take a screenshot${where}`,
     files_trash: `Move to the Trash: ${a.value ?? ''}`, files_move: `Move: ${a.value ?? ''}`, files_copy: `Copy: ${a.value ?? ''}`,
     files_mkdir: `Make a folder: ${a.value ?? ''}`, files_open: `Open: ${a.value ?? ''}`, open_url: `Open ${a.value ?? ''}${where}`,
-    files_empty_trash: 'Empty the Trash', files_download: `Download: ${a.value ?? ''}`,
+    files_empty_trash: 'Empty the Trash', files_download: `Download: ${a.value ?? ''}`, files_write: `Create a file: ${a.value ?? ''}`,
+    'triple-click': `Triple-click ${what}${where}`, 'right-click': `Right-click ${what}${where}`, hover: `Point at ${what}${where}`,
+    type_here: `Type "${a.value ?? ''}"${where}`,
+    mouse_click: `Click ${a.target ? what : `the screen at ${a.value ?? ''}`}${where}`, 'mouse_double-click': `Double-click ${a.target ? what : `the screen at ${a.value ?? ''}`}${where}`,
+    'mouse_triple-click': `Triple-click ${a.target ? what : `the screen at ${a.value ?? ''}`}${where}`, 'mouse_right-click': `Right-click ${a.target ? what : `the screen at ${a.value ?? ''}`}${where}`,
+    'mouse_middle-click': `Middle-click ${a.target ? what : `the screen at ${a.value ?? ''}`}${where}`, mouse_drag: `Drag ${a.target ? `onto ${what}` : `on the screen (${a.value ?? ''})`}${where}`,
+    mouse_move: `Move the pointer${where}`, mouse_scroll: `Scroll${where}`,
   };
   return (lang === 'he' ? he : en)[a.verb] ?? `${a.verb} ${what}${where}`;
 }

@@ -236,3 +236,70 @@ test('the model reads a screen as short lines, and its short refs reach the engi
   await runTool('ands_look', { app: 'Mail', root: '@e3' }, { engine, gate, source: 'test' });
   assert.ok(seen.at(-1)!.includes('@s9:e3'));
 });
+
+test('the real mouse: a click at a point is judged by what the last screen shows there, and asks when nothing is known', async () => {
+  const tree = { role: 'window', name: 'Mail', children: [
+    { ref_id: '@s2:e1', role: 'button', name: 'Send', bounds: { x: 100, y: 100, width: 80, height: 30 } },
+    { ref_id: '@s2:e2', role: 'button', name: 'Bold', bounds: { x: 200, y: 100, width: 30, height: 30 } },
+    { ref_id: '@s2:e3', role: 'group', name: 'Toolbar', bounds: { x: 0, y: 90, width: 400, height: 50 } },
+  ] };
+  const seen: string[][] = [];
+  const engine = new Engine(async (args): Promise<Envelope> => { seen.push(args); return args[1] === 'snapshot' ? { ok: true, data: { app: 'Mail', tree } } : { ok: true, data: {} }; }, ['--headed']);
+  const asked: Ask[] = [];
+  const gate = new Gate({ trust: 'ask_all', approver: async (a) => { asked.push(a); return 'yes_for_task'; } });
+  const look = await runTool('ands_look', { app: 'Mail', bounds: true }, { engine, gate, source: 'test' });
+  assert.match(look.text, /button "Send" e1 @100,100 80x30/);
+  assert.ok(seen[0].includes('--include-bounds'));
+  // Bold: the smallest element under the point, an ordinary change.
+  await runTool('ands_mouse', { action: 'click', x: 215, y: 115, why: 'bold' }, { engine, gate, source: 'test' });
+  assert.equal(asked[0].tier, 'change');
+  assert.equal(asked[0].action.target?.name, 'Bold');
+  assert.deepEqual(seen.at(-1), ['--headed', 'mouse-click', '--xy', '215,115', '--button', 'left', '--count', '1']);
+  // Send, under the point: always asks, even after yes for the task.
+  await runTool('ands_mouse', { action: 'right-click', x: 140, y: 110, why: 'menu' }, { engine, gate, source: 'test' });
+  assert.equal(asked[1].tier, 'sensitive');
+  assert.deepEqual(seen.at(-1)!.slice(4, 8), ['--button', 'right', '--count', '1']);
+  // A point ands has not seen: asks.
+  await runTool('ands_mouse', { action: 'double-click', x: 900, y: 900, why: 'open' }, { engine, gate, source: 'test' });
+  assert.equal(asked[2].tier, 'sensitive');
+  await runTool('ands_mouse', { action: 'drag', ref: 'e2', to_x: 150, to_y: 110, why: 'move it' }, { engine, gate, source: 'test' });
+  assert.equal(asked[3].tier, 'sensitive');
+  assert.deepEqual(seen.at(-1), ['--headed', 'drag', '--from', '@s2:e2', '--to-xy', '150,110']);
+  // Moving the pointer and the wheel change nothing by themselves; --headed is passed once.
+  await runTool('ands_mouse', { action: 'scroll', x: 10, y: 10, direction: 'down', amount: 5, why: 'more' }, { engine, gate, source: 'test' });
+  assert.deepEqual(seen.at(-1), ['--headed', 'mouse-wheel', '--x=10', '--y=10', '--dy=-5', '--dx=0']);
+});
+
+test('a click that cannot reach a covered element is done with the real pointer where it is, after the same approval', async () => {
+  const seen: string[] = [];
+  const engine = new Engine(async (args): Promise<Envelope> => {
+    seen.push(args.join(' '));
+    if (args[1] === 'right-click') return { ok: false, error: { code: 'ACTION_FAILED', message: 'Target is not actionable: receives_events (occluded by image)' } };
+    if (args[1] === 'get') return { ok: true, data: { property: 'bounds', value: { x: 10, y: 20, width: 100, height: 40 } } };
+    return { ok: true, data: {} };
+  }, ['--headed']);
+  const no = new Gate({ trust: 'ask_all', approver: async () => 'no' });
+  await runTool('ands_act', { action: 'right-click', ref: '@s:e4', why: 'menu' }, { engine, gate: no, source: 'test' });
+  assert.deepEqual(seen, []);
+  const gate = new Gate({ trust: 'autopilot', approver: async () => 'yes' });
+  const r = await runTool('ands_act', { action: 'right-click', ref: '@s:e4', why: 'menu' }, { engine, gate, source: 'test' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(seen, ['--headed right-click @s:e4', '--headed get @s:e4 --property bounds', '--headed mouse-click --xy 60,40 --button right --count 1']);
+  assert.match(r.text, /real pointer/);
+});
+
+test('typing where the keyboard is pastes the text into the named app; reading a page gets every text, long', async () => {
+  const seen: string[][] = [];
+  const long = 'Dana Cohen – Head of Sales at Example Ltd, Tel Aviv. 12 years selling software to banks and insurers, before that at a startup';
+  const engine = new Engine(async (args): Promise<Envelope> => { seen.push(args); return args[0] === 'snapshot' ? { ok: true, data: { app: 'Chrome', tree: { role: 'webarea', children: [{ role: 'text', name: long }] } } } : { ok: true, data: {} }; });
+  const gate = new Gate({ trust: 'autopilot', approver: async () => 'yes' });
+  await runTool('ands_type', { text: 'a\tb\nc\td', app: 'Google Chrome', why: 'table' }, { engine, gate, source: 'test' });
+  assert.deepEqual(seen[0], ['clipboard-set', 'a\tb\nc\td']);
+  assert.equal(seen[1][0], '--headed');
+  assert.ok(['cmd+v', 'ctrl+v'].includes(seen[1][2]));
+  assert.deepEqual(seen[1].slice(3), ['--app', 'Google Chrome']);
+  const read = await runTool('ands_look', { app: 'Chrome', read: true }, { engine, gate, source: 'test' });
+  assert.ok(!seen[2].includes('-i'));
+  assert.ok(read.text.includes(long));
+  assert.equal(classify({ verb: 'wait' }), 'read');
+});
