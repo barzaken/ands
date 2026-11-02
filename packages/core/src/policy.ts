@@ -58,6 +58,15 @@ export function classify(a: Action): Tier {
   if (a.verb === 'clipboard_get' || a.verb === 'screenshot') return 'sensitive'; // can expose private content to the model
   if (a.verb === 'close') return 'change';
   if (a.verb === 'launch') return 'change';
+  if (/^mouse_/.test(a.verb)) {
+    // The real pointer at a point on the screen. Moving it or turning the wheel changes nothing by itself.
+    if (a.verb === 'mouse_move' || a.verb === 'mouse_scroll') return 'change';
+    // A click or drag is judged by what is under it on the last screen (from the screen, never from the model);
+    // when nothing known is there, the person is asked.
+    if (!a.target) return 'sensitive';
+    if (hasWord(a.target.name, SENSITIVE_WORDS) || /password|secure/i.test(a.target.role)) return 'sensitive';
+    return 'change';
+  }
   if (a.verb === 'press') {
     // Return/Enter often submits a form or sends a message.
     // Return in a search or address field only searches or opens a page; anywhere else it may send or submit.
