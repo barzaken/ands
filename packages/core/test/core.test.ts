@@ -206,3 +206,33 @@ test('agent names become engine agent ids', () => {
   assert.equal(agentId(undefined), 'main');
   assert.equal(agentId('x'.repeat(80)).length, 64);
 });
+
+test('the model reads a screen as short lines, and its short refs reach the engine in full', async () => {
+  const tree = { role: 'window', name: 'Inbox', children: [{ role: 'group', children: [
+    { ref_id: '@s9:e1', role: 'button', name: 'Send', description: 'Send', available_actions: ['Click'], native_id: { kind: 'ax', value: 'v1' }, states: ['enabled'] },
+    { ref_id: '@s9:e2', role: 'textfield', name: 'Subject', value: 'Hello', states: ['focused'] },
+    { role: 'group', name: 'Messages', children_count: 40, ref_id: '@s9:e3' },
+  ] }] };
+  const seen: string[][] = [];
+  const engine = new Engine(async (args): Promise<Envelope> => { seen.push(args); return args[0] === 'snapshot' ? { ok: true, data: { app: 'Mail', complete: false, snapshot_id: 's9', tree } } : { ok: true, data: { action: 'click', steps: [1, 2], disposition: { delivery: 'delivered_verified' } } }; });
+  const asked: Ask[] = [];
+  const gate = new Gate({ trust: 'ask_important', approver: async (a) => { asked.push(a); return 'yes'; } });
+  const look = await runTool('ands_look', { app: 'Mail' }, { engine, gate, source: 'test' });
+  assert.equal(look.text, [
+    'Mail',
+    'window "Inbox"',
+    '  button "Send" e1',
+    '  textfield "Subject" e2 = "Hello" [focused]',
+    '  group "Messages" e3 (40 more inside: look with root:e3)',
+    '(This screen was cut: look with text:"…" for what you need, or skeleton:true and then root.)',
+  ].join('\n'));
+  assert.ok(!look.text.includes('native_id'));
+  const click = await runTool('ands_act', { action: 'click', ref: 'e1', why: 'send it' }, { engine, gate, source: 'test' });
+  assert.deepEqual(seen.at(-1), ['click', '@s9:e1']);
+  // The gate judged the Send button from the screen, not from the model's words.
+  assert.equal(asked[0].action.target?.name, 'Send');
+  assert.equal(asked[0].tier, 'sensitive');
+  assert.ok(!click.text.includes('steps'));
+  await runTool('ands_look', { app: 'Mail', root: '@e3' }, { engine, gate, source: 'test' });
+  assert.ok(seen.at(-1)!.includes('@s9:e3'));
+});

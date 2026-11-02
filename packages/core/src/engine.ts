@@ -67,6 +67,19 @@ export class Engine {
     return hands && needsHands(e) ? hands(() => this.run(['--headed', ...args])) : e;
   }
 
+  /** Short refs as the model sees them (e5) to the engine's qualified refs (@s8f3k2p9:e5), latest screen first. */
+  short = new Map<string, string>();
+  /** A ref as the model wrote it ("e5", "@e5" or the full "@s…:e5") as the engine takes it. */
+  full(ref: unknown): string {
+    const r = String(ref ?? '').trim();
+    const m = /^@?(e\d+)$/.exec(r);
+    return m ? this.short.get(m[1]) ?? r : r;
+  }
+  private remember(ref: string, info: RefInfo) {
+    this.refs.set(ref, info);
+    this.short.set(ref.slice(ref.lastIndexOf(':') + 1), ref);
+  }
+
   /** The field ands last typed into, so Return there can be told apart (search vs. message). */
   lastTyped?: RefInfo;
 
@@ -83,7 +96,11 @@ export class Engine {
     if (o.compact !== false) a.push('--compact');
     if (o.skeleton) a.push('--skeleton');
     const e = await this.run(a);
-    if (e.ok) collectRefs(e.data?.tree, this.refs);
+    if (e.ok) {
+      // A new screen: short refs now mean its elements (a full look, not a drill into one part).
+      if (!o.root) this.short.clear();
+      for (const [ref, info] of collectRefs(e.data?.tree)) this.remember(ref, info);
+    }
     return e;
   }
   /** Elements whose name or text contains `text` (and of `role`, when given), with refs to act on. */
@@ -93,7 +110,7 @@ export class Engine {
     if (o.windowId) a.push('--window-id', o.windowId);
     if (o.role) a.push('--role', o.role);
     const e = await this.run(a);
-    if (e.ok) for (const m of e.data?.matches ?? []) if (typeof m.ref_id === 'string') this.refs.set(m.ref_id, { role: String(m.role ?? ''), name: String(m.name ?? '') });
+    if (e.ok) for (const m of e.data?.matches ?? []) if (typeof m.ref_id === 'string') this.remember(m.ref_id, { role: String(m.role ?? ''), name: String(m.name ?? '') });
     return e;
   }
   /** One action on a ref; `verb` is an engine command name (click, type, select, toggle, scroll ...). */
