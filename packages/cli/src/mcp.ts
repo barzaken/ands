@@ -2,7 +2,7 @@
 // package has no runtime dependencies. Approvals go to the person through MCP elicitation when the
 // client supports it, and through the OS dialog box otherwise.
 import { createInterface } from 'node:readline';
-import { Agents, AGENT_PARAM, agentId, Gate, TOOLS, runTool, runEngine, log, loadConfig, type Ask, type Answer, type Runner, type ToolSpec } from '@ands/core';
+import { Agents, AGENT_PARAM, agentId, Gate, TOOLS, PHONE_TOOLS, Phones, isPhoneTool, runTool, runPhoneTool, runEngine, nodePhones, log, loadConfig, type Ask, type Answer, type Runner, type ToolSpec } from '@ands/core';
 import { dialogApprover, question } from './ask.ts';
 import { VERSION } from './version.ts';
 
@@ -10,12 +10,14 @@ const SUPPORTED = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 type Send = (msg: object) => void;
 
-/** The tools as outside agents see them: each takes an optional `agent`, so several jobs can run at once. */
-export const MCP_TOOLS: ToolSpec[] = TOOLS.map((t) => ({ ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, agent: AGENT_PARAM } } }));
+/** The tools as outside agents see them: each computer tool takes an optional `agent`, so several jobs can run at once.
+ *  Then the phone's tools: the person's own phone, through the same gate. */
+export const MCP_TOOLS: ToolSpec[] = [...TOOLS.map((t) => ({ ...t, inputSchema: { ...t.inputSchema, properties: { ...t.inputSchema.properties, agent: AGENT_PARAM } } })), ...PHONE_TOOLS];
 
 export class McpServer {
   /** One engine session for this server, with a cursor per agent. */
   agents: Agents;
+  phones: Phones;
   gate: Gate;
   send: Send;
   canElicit = false;
@@ -23,8 +25,9 @@ export class McpServer {
   pending = new Map<number, (v: any) => void>();
   lang: 'he' | 'en';
 
-  constructor(send: Send, run: Runner = runEngine) {
+  constructor(send: Send, run: Runner = runEngine, phones: Phones = nodePhones()) {
     const cfg = loadConfig();
+    this.phones = phones;
     this.lang = cfg.lang;
     this.send = send;
     this.agents = new Agents(run, { style: ['--accent', '#E8643A'] });
@@ -62,15 +65,21 @@ export class McpServer {
         const v = msg.params?.protocolVersion;
         this.canElicit = !!msg.params?.capabilities?.elicitation;
         return reply({ protocolVersion: SUPPORTED.includes(v) ? v : SUPPORTED[0], capabilities: { tools: {} }, serverInfo: { name: 'ands', version: VERSION },
-          instructions: 'ands gives you hands on this computer. Use ands_apps to find an app, ands_look to see it, ands_act/ands_press to act, and ands_look again to check. Steps that send, pay, delete or install wait for the person. Work runs in the background, so the person can keep using the computer. For several independent jobs, run them at once (for example one subagent each) and pass each job its own `agent` name: each gets its own cursor. Keep steps that depend on each other in one job.' });
+          instructions: 'ands gives you hands on this computer. Use ands_apps to find an app, ands_look to see it, ands_act/ands_press to act, and ands_look again to check. Steps that send, pay, delete or install wait for the person. Work runs in the background, so the person can keep using the computer. For several independent jobs, run them at once (for example one subagent each) and pass each job its own `agent` name: each gets its own cursor. Keep steps that depend on each other in one job. The person\'s own phone is reachable too (ands_phones, then ands_phone_look / ands_phone_tap / ands_phone_type), for apps that exist only there; it goes through the same approvals.' });
       }
       case 'notifications/initialized': case 'notifications/cancelled': return;
       case 'ping': return reply({});
       case 'tools/list': return reply({ tools: MCP_TOOLS });
       case 'tools/call': {
         const { name, arguments: args = {} } = msg.params ?? {};
-        if (!TOOLS.some((t) => t.name === name)) return fail(-32602, `Unknown tool ${name}`);
+        if (!MCP_TOOLS.some((t) => t.name === name)) return fail(-32602, `Unknown tool ${name}`);
         this.gate.task ??= 'mcp session';
+        if (isPhoneTool(name)) {
+          const r = await runPhoneTool(name, args, { phones: this.phones, gate: this.gate, source: 'mcp:phone', log });
+          const content: any[] = [{ type: 'text', text: r.text }];
+          if (r.image) content.push({ type: 'image', data: r.image.data, mimeType: r.image.mimeType });
+          return reply({ content, isError: !r.ok });
+        }
         const engine = await this.agents.engine(typeof args.agent === 'string' ? args.agent : undefined);
         const r = await runTool(name, args, { engine, gate: this.gate, source: args.agent ? `mcp:${agentId(args.agent)}` : 'mcp', log });
         const content: any[] = [{ type: 'text', text: r.text }];

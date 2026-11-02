@@ -4,6 +4,7 @@ import { createInterface } from 'node:readline/promises';
 import { serveStdio, clientConfig } from './mcp.ts';
 import { VERSION } from './version.ts';
 import { link, connect } from './link.ts';
+import { phone } from './phone.ts';
 
 const AUTOPILOT_WARNING = "In autopilot, ands doesn't ask before it acts, even before things that can't be undone: sending messages and emails, payments and purchases, deleting files, submitting forms and installing. AI can make mistakes, click the wrong thing or be misled by text it reads. Don't use it for tasks involving money, messages to others, or anything you can't undo.";
 
@@ -29,6 +30,7 @@ const HELP = `ands ${VERSION}: hands for AI agents
   ands link                  connect a cloud agent (lvlz, any MCP-by-URL agent): prints its address, stays online
   ands link --new | --off    a fresh address, or turn the link off
   ands connect               go online again with the saved link
+  ands phone                 your own phone too: Android (USB or Wi-Fi) and iPhone. \`ands phone help\`
 `;
 
 const flag = (args: string[], name: string) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : undefined; };
@@ -62,6 +64,7 @@ export async function main(argv = process.argv.slice(2)) {
     }
     case 'link': return link(rest);
     case 'connect': return connect();
+    case 'phone': return phone(rest);
     default: { err(`Unknown command ${cmd}\n`); process.exitCode = 1; return out(HELP); }
   }
 }

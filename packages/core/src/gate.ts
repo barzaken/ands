@@ -64,6 +64,10 @@ export function describe(a: Action, lang: 'he' | 'en' = 'en'): string {
     'mouse_triple-click': `ללחוץ שלוש פעמים ${a.target ? `על ${what}` : `במקום ${a.value ?? ''} במסך`}${where}`, 'mouse_right-click': `ללחוץ קליק ימני ${a.target ? `על ${what}` : `במקום ${a.value ?? ''} במסך`}${where}`,
     'mouse_middle-click': `ללחוץ בגלגלת ${a.target ? `על ${what}` : `במקום ${a.value ?? ''} במסך`}${where}`, mouse_drag: `לגרור ${a.target ? `אל ${what}` : `במסך (${a.value ?? ''})`}${where}`,
     mouse_move: `להזיז את העכבר${where}`, mouse_scroll: `לגלול${where}`,
+    phone_tap: `לגעת ${a.target ? `ב-${what}` : `במסך במקום ${a.value ?? ''}`} בטלפון${where}`, phone_long_press: `ללחוץ לחיצה ארוכה ${a.target ? `על ${what}` : `במקום ${a.value ?? ''}`} בטלפון${where}`,
+    phone_type: `להקליד בטלפון ״${a.value ?? ''}״${a.target ? ` ב-${what}` : ''}`, phone_enter: `ללחוץ אנטר בטלפון${a.target ? ` ב-${what}` : ''}${where}`,
+    phone_swipe: `להחליק בטלפון (${a.value ?? ''})${where}`, phone_button: `ללחוץ על ${a.value ?? ''} בטלפון`, phone_launch: `לפתוח בטלפון את ${a.app ?? a.value ?? ''}`,
+    phone_screenshot: `לצלם את מסך הטלפון${where}`,
   };
   const en: Record<string, string> = {
     click: `Click ${what}${where}`, 'double-click': `Double-click ${what}${where}`, type: `Type "${a.value ?? ''}" into ${what}`,
@@ -79,6 +83,10 @@ export function describe(a: Action, lang: 'he' | 'en' = 'en'): string {
     'mouse_triple-click': `Triple-click ${a.target ? what : `the screen at ${a.value ?? ''}`}${where}`, 'mouse_right-click': `Right-click ${a.target ? what : `the screen at ${a.value ?? ''}`}${where}`,
     'mouse_middle-click': `Middle-click ${a.target ? what : `the screen at ${a.value ?? ''}`}${where}`, mouse_drag: `Drag ${a.target ? `onto ${what}` : `on the screen (${a.value ?? ''})`}${where}`,
     mouse_move: `Move the pointer${where}`, mouse_scroll: `Scroll${where}`,
+    phone_tap: `Tap ${a.target ? what : `the phone's screen at ${a.value ?? ''}`} on the phone${where}`, phone_long_press: `Long-press ${a.target ? what : `the phone's screen at ${a.value ?? ''}`} on the phone${where}`,
+    phone_type: `Type "${a.value ?? ''}" on the phone${a.target ? ` into ${what}` : ''}`, phone_enter: `Press Enter on the phone${a.target ? ` in ${what}` : ''}${where}`,
+    phone_swipe: `Swipe on the phone (${a.value ?? ''})${where}`, phone_button: `Press ${a.value ?? ''} on the phone`, phone_launch: `Open ${a.app ?? a.value ?? ''} on the phone`,
+    phone_screenshot: `Take a picture of the phone's screen${where}`,
   };
   return (lang === 'he' ? he : en)[a.verb] ?? `${a.verb} ${what}${where}`;
 }

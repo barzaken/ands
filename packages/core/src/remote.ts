@@ -8,7 +8,9 @@
 import type { Engine } from './engine.ts';
 import { describe, type Gate, type Approver, type Ask, type Answer } from './gate.ts';
 import type { Action } from './policy.ts';
-import { TOOLS, runTool } from './tools.ts';
+import { TOOLS, runTool, type ToolResult } from './tools.ts';
+import { PHONE_TOOLS, isPhoneTool, runPhoneTool } from './phone-tools.ts';
+import type { Phones } from './phone.ts';
 
 type Fetch = typeof fetch;
 
@@ -136,18 +138,19 @@ export function withRemoteOk(local: Approver, o: {
 }
 
 /** One MCP message from the agent, answered on this computer. The relay answers initialize and ping itself. */
-export async function answerRemote(msg: any, ctx: { engine: Engine; gate: Gate; onCall?: (c: RemoteCall) => void }): Promise<object> {
+export async function answerRemote(msg: any, ctx: { engine: Engine; gate: Gate; phones?: Phones; onCall?: (c: RemoteCall) => void }): Promise<object> {
   const reply = (result: object) => ({ jsonrpc: '2.0', id: msg?.id ?? null, result });
   const fail = (code: number, message: string) => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code, message } });
   switch (msg?.method) {
-    case 'tools/list': return reply({ tools: TOOLS });
+    case 'tools/list': return reply({ tools: ctx.phones ? [...TOOLS, ...PHONE_TOOLS] : TOOLS });
     case 'ping': return reply({});
     case 'tools/call': {
       const { name, arguments: args = {} } = msg.params ?? {};
-      if (!TOOLS.some((t) => t.name === name)) return fail(-32602, `Unknown tool ${name}`);
+      const phone = !!ctx.phones && isPhoneTool(name);
+      if (!phone && !TOOLS.some((t) => t.name === name)) return fail(-32602, `Unknown tool ${name}`);
       ctx.gate.task ??= 'remote agent';
-      let r;
-      try { r = await runTool(name, args, { engine: ctx.engine, gate: ctx.gate, source: 'remote' }); }
+      let r: ToolResult;
+      try { r = phone ? await runPhoneTool(name, args, { phones: ctx.phones!, gate: ctx.gate, source: 'remote:phone' }) : await runTool(name, args, { engine: ctx.engine, gate: ctx.gate, source: 'remote' }); }
       catch (e) {
         if (!(e instanceof NeedsOk)) throw e;
         const text = `Not done yet: this step needs the person's OK (${e.what}). Send them this link so they can approve it from their phone: ${e.url}\nWhen they have answered, call ${name} again with the same arguments. If they had to sign in first, the link may ask for a fresh one: call ${name} again and send the new link. Do not open the link yourself; only the person can answer it.`;
@@ -169,7 +172,7 @@ export async function answerRemote(msg: any, ctx: { engine: Engine; gate: Gate; 
  * so an approval question never overlaps another action.
  */
 export async function serveRemote(o: {
-  base: string; link: RemoteCreds; engine: Engine; gate: Gate; signal?: AbortSignal; fetch?: Fetch;
+  base: string; link: RemoteCreds; engine: Engine; gate: Gate; phones?: Phones; signal?: AbortSignal; fetch?: Fetch;
   onCall?: (c: RemoteCall) => void; onState?: (s: RemoteState) => void; retryMs?: number;
   /** Also offer each question as a phone link (default on). `dismiss` hides the computer's card when the phone answered first. */
   phoneOk?: boolean; dismiss?: () => void; waitMs?: number;
