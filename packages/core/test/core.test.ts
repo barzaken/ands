@@ -237,6 +237,14 @@ test('the model reads a screen as short lines, and its short refs reach the engi
   assert.ok(seen.at(-1)!.includes('@s9:e3'));
 });
 
+test('engine 1.1: a window it could not read whole says its refs may refuse', async () => {
+  const tree = { role: 'window', name: 'Files', children: [{ ref_id: '@s4:e1', role: 'button', name: 'Open' }] };
+  const engine = new Engine(async (): Promise<Envelope> => ({ ok: true, data: { app: 'Files', identity_unproven: true, snapshot_id: 's4', tree } }));
+  const gate = new Gate({ trust: 'ask_important', approver: async () => 'yes' });
+  const look = await runTool('ands_look', { app: 'Files' }, { engine, gate, source: 'test' });
+  assert.ok(look.text.endsWith('(The engine could not read this window whole, so its refs may refuse: look again, or at a smaller part with root.)'));
+});
+
 test('the real mouse: a click at a point is judged by what the last screen shows there, and asks when nothing is known', async () => {
   const tree = { role: 'window', name: 'Mail', children: [
     { ref_id: '@s2:e1', role: 'button', name: 'Send', bounds: { x: 100, y: 100, width: 80, height: 30 } },
