@@ -66,6 +66,8 @@ export function compactScreen(data: any, o: ScreenOptions = {}): string {
   if (head) out.push(head);
   walk(data?.tree, 0, out, c);
   if (data?.complete === false) out.push('(This screen was cut: look with text:"…" for what you need, or skeleton:true and then root.)');
+  // engine 1.1: refs of a window it could not read whole may refuse (AMBIGUOUS_TARGET, identity_not_unique).
+  if (data?.identity_unproven === true) out.push('(The engine could not read this window whole, so its refs may refuse: look again, or at a smaller part with root.)');
   return out.join('\n');
 }
 

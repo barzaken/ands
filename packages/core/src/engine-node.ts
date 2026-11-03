@@ -8,17 +8,17 @@ import { join } from 'node:path';
 import { home } from './config.ts';
 import type { Envelope, Runner } from './engine.ts';
 
-export const ENGINE_VERSION = '1.0.2';
+export const ENGINE_VERSION = '1.1.0';
 export const ENGINE_RELEASES = 'https://github.com/vercel-labs/agent-desktop/releases/download';
 
 /** Release archives per platform, with the SHA-256 published in that release's checksums.txt. */
 export const ENGINE_BUILDS: Record<string, { target: string; sha256: string }> = {
-  'darwin-arm64': { target: 'aarch64-apple-darwin', sha256: '7bee385196d7b478de80cf05ca4304aaa38f0eba593b3406ad3c247c1773be19' },
-  'darwin-x64': { target: 'x86_64-apple-darwin', sha256: '8edda6df17eafc042395502a823dbb8415bc8ac14835a6731e4d8becc9cb4121' },
-  'linux-arm64': { target: 'aarch64-unknown-linux-gnu', sha256: '864cb782e0afc8bf0df19622016b24bdbd1a83fc7749f784ee82aa49a7f845eb' },
-  'linux-x64': { target: 'x86_64-unknown-linux-gnu', sha256: 'ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4' },
-  'win32-arm64': { target: 'aarch64-pc-windows-msvc', sha256: 'a0ecd6e17e60a0bcfbb45533a72f2d3a7a73508769588273ef08b0477d2b9687' },
-  'win32-x64': { target: 'x86_64-pc-windows-msvc', sha256: '2186c76e7df197c0e67365e45d36d869f74714c56bb8a73817e2a66f3e18e222' },
+  'darwin-arm64': { target: 'aarch64-apple-darwin', sha256: '3048e00aa0741bf25ffe0326f78c966408be4490ce13513f3f94ecf2a0b5270d' },
+  'darwin-x64': { target: 'x86_64-apple-darwin', sha256: 'b6352ac66aa49e0280c6f690de791dc03c827623a838950856b20ddbebcdc382' },
+  'linux-arm64': { target: 'aarch64-unknown-linux-gnu', sha256: '252c17e271a444352a5ba1e9f8fcbace89fa7b6b0bfcc4abebad2b35eb1f7a4d' },
+  'linux-x64': { target: 'x86_64-unknown-linux-gnu', sha256: 'efbdcf4caf10132e4fe915db1ec643184c947c65e0511845aeb4839445d7ea43' },
+  'win32-arm64': { target: 'aarch64-pc-windows-msvc', sha256: '20e2a2a029bc7e86aaacf2003afa78708d66e4cb51f3c216597e1f5d79d496bf' },
+  'win32-x64': { target: 'x86_64-pc-windows-msvc', sha256: '5c13b932add079c141da18631d65b1680d1b9bcb73942f2f99146c9ee13877f6' },
 };
 
 const exe = (platform = process.platform) => (platform === 'win32' ? 'agent-desktop.exe' : 'agent-desktop');
