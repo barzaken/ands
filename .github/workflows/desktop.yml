@@ -35,6 +35,7 @@ jobs:
     env:
       HAS_APPLE: ${{ secrets.APPLE_CERTIFICATE != '' }}
       HAS_AZURE: ${{ secrets.AZURE_CLIENT_ID != '' }}
+      HAS_UPDATER: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -77,9 +78,18 @@ jobs:
         if: runner.os == 'macOS' && env.HAS_APPLE != 'true'
         shell: bash
         run: echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+      # The updater's own signature on each new version (the app checks it before installing), once the key exists.
+      - name: Updater key (only when it exists)
+        if: env.HAS_UPDATER == 'true'
+        shell: bash
+        run: |
+          echo "TAURI_SIGNING_PRIVATE_KEY=${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          echo '{"bundle":{"createUpdaterArtifacts":true}}' > apps/desktop/updater.conf.json
       - name: Build
         working-directory: apps/desktop
-        run: npx tauri build --target ${{ matrix.target }}
+        shell: bash
+        run: npx tauri build --target ${{ matrix.target }} $([ -f updater.conf.json ] && echo --config updater.conf.json)
       - name: Check the Mac app's signature
         if: runner.os == 'macOS'
         shell: bash
@@ -104,6 +114,12 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
+      # Signing changed the installer, so its updater signature is made again.
+      - name: Updater signature after Windows signing
+        if: runner.os == 'Windows' && env.HAS_AZURE == 'true' && env.HAS_UPDATER == 'true'
+        working-directory: apps/desktop
+        shell: bash
+        run: for f in src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe; do rm -f "$f.sig"; npx tauri signer sign "$f"; done
       - uses: actions/upload-artifact@v4
         with:
           name: ands-${{ matrix.target }}
@@ -113,6 +129,8 @@ jobs:
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
             apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.sig
           if-no-files-found: error
 
   # Releases the version in tauri.conf.json to GitHub Releases (where ands.sh/download points):
@@ -135,13 +153,29 @@ jobs:
           gh run download ${{ github.run_id }} -D out
           # Fixed names, so ands.sh/download can link to releases/latest/download/<name>.
           mkdir rel
-          one() { f=$(find "out/ands-$1" -name "$2" | head -1); [ -n "$f" ] && cp "$f" "rel/$3"; }
+          one() { f=$(find "out/ands-$1" -name "$2" | head -1); if [ -n "$f" ]; then cp "$f" "rel/$3"; fi; }
           one aarch64-apple-darwin '*.dmg' ands-mac-apple-silicon.dmg
           one x86_64-apple-darwin '*.dmg' ands-mac-intel.dmg
           one x86_64-pc-windows-msvc '*-setup.exe' ands-windows-setup.exe
           one x86_64-pc-windows-msvc '*.msi' ands-windows.msi
           one x86_64-unknown-linux-gnu '*.AppImage' ands-linux.AppImage
           one x86_64-unknown-linux-gnu '*.deb' ands-linux.deb
-          ls -l rel
           test "$(ls rel | wc -l)" -eq 6
+          # The updater's files and latest.json (what the app reads at releases/latest/download/latest.json),
+          # only when the builds were signed with the updater key.
+          if find out -name '*.sig' | grep -q .; then
+            one aarch64-apple-darwin '*.app.tar.gz' ands-mac-apple-silicon.app.tar.gz
+            one aarch64-apple-darwin '*.app.tar.gz.sig' ands-mac-apple-silicon.app.tar.gz.sig
+            one x86_64-apple-darwin '*.app.tar.gz' ands-mac-intel.app.tar.gz
+            one x86_64-apple-darwin '*.app.tar.gz.sig' ands-mac-intel.app.tar.gz.sig
+            one x86_64-pc-windows-msvc '*-setup.exe.sig' ands-windows-setup.exe.sig
+            one x86_64-unknown-linux-gnu '*.AppImage.sig' ands-linux.AppImage.sig
+            VERSION="${TAG#v}" TAG="$TAG" REPO="$GH_REPO" node -e '
+              const fs = require("fs"); const at = (n) => `https://github.com/${process.env.REPO}/releases/download/${process.env.TAG}/${n}`;
+              const p = {}; const add = (k, n) => { if (fs.existsSync(`rel/${n}.sig`)) p[k] = { signature: fs.readFileSync(`rel/${n}.sig`, "utf8").trim(), url: at(n) }; };
+              add("darwin-aarch64", "ands-mac-apple-silicon.app.tar.gz"); add("darwin-x86_64", "ands-mac-intel.app.tar.gz");
+              add("windows-x86_64", "ands-windows-setup.exe"); add("linux-x86_64", "ands-linux.AppImage");
+              fs.writeFileSync("rel/latest.json", JSON.stringify({ version: process.env.VERSION, pub_date: new Date().toISOString(), platforms: p }, null, 2));'
+          fi
+          ls -l rel
           gh release create "$TAG" --target "${{ github.sha }}" --title "ands $TAG" --generate-notes rel/*

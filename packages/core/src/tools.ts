@@ -1,6 +1,6 @@
 // The hands, as tools. One definition serves the MCP server (for outside agents) and the agent's own loop.
 // Every call goes through the gate before it reaches the engine, and every call is logged.
-import type { Engine, Envelope, PointerAction } from './engine.ts';
+import type { Engine, Envelope, PointerAction, Look } from './engine.ts';
 import { Gate, type Verdict } from './gate.ts';
 import type { Action } from './policy.ts';
 import { compactScreen, compactMatches, quiet, type ScreenOptions } from './screen.ts';
@@ -12,7 +12,7 @@ const why = { type: 'string', description: 'One short sentence, for the person, 
 export const TOOLS: ToolSpec[] = [
   { name: 'ands_look', description: 'See an app: returns its window as short lines, one element each (role, "name", ref like e8, = value, [states]), indented under the groups they sit in. Refs belong to that screen; look again after the screen changes. To find one thing (a "Download" button, a file name), pass text: only matching elements come back, which is much faster. To read what a page or document says (search results, an email, an article, a table), pass read:true: every text comes back, long enough to read (with root:<ref> for one part). bounds:true adds where each element is (@x,y widthxheight, in screen points) for ands_mouse. For dense apps pass skeleton:true first, then root:<ref> to drill in.',
     inputSchema: { type: 'object', properties: { app: { type: 'string', description: 'App name exactly as ands_apps lists it, e.g. "Safari", "Google Chrome", "Finder". Never translate it into the person\'s language.' }, window_id: { type: 'string' }, text: { type: 'string', description: 'Only elements whose name or text contains this, e.g. "Download"' }, role: { type: 'string', description: 'With text: only this kind of element, e.g. "button", "link"' }, root: { type: 'string', description: 'Ref to start from' }, skeleton: { type: 'boolean' }, read: { type: 'boolean', description: 'Every text on the screen, not only what can be clicked: to read results, messages, articles' }, bounds: { type: 'boolean', description: 'Add where each element is on the screen' } } } },
-  { name: 'ands_act', description: 'Do one thing to an element from your last ands_look: click, double-click, triple-click, right-click, hover (point at it, e.g. to open a menu), type, set-value, select, toggle, check, uncheck, scroll, scroll-to, focus, clear, expand, collapse. When an element cannot be reached directly (covered, or without a size), a click is done with the real pointer where it is. Look again afterwards to confirm it worked. Steps that send, pay, delete or install wait for the person to approve.',
+  { name: 'ands_act', description: 'Do one thing to an element from your last ands_look: click, double-click, triple-click, right-click, hover (point at it, e.g. to open a menu), type, set-value, select, toggle, check, uncheck, scroll, scroll-to, focus, clear, expand, collapse. When an element cannot be reached directly (covered, or without a size), a click is done with the real pointer where it is. A click in a named app answers with the screen after it (fresh refs); otherwise look again to confirm it worked. Steps that send, pay, delete or install wait for the person to approve.',
     inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ['click', 'double-click', 'triple-click', 'right-click', 'hover', 'type', 'set-value', 'select', 'toggle', 'check', 'uncheck', 'scroll', 'scroll-to', 'focus', 'clear', 'expand', 'collapse'] }, ref: { type: 'string' }, value: { type: 'string', description: 'Text for type/set-value, option for select, direction for scroll' }, app: { type: 'string' }, why }, required: ['action', 'ref', 'why'] } },
   { name: 'ands_press', description: 'Press a key or shortcut, e.g. "return", "escape", "cmd+c", "ctrl+shift+t". Return right after typing into a search or address field just searches; elsewhere Return waits for approval because it often sends or submits.',
     inputSchema: { type: 'object', properties: { combo: { type: 'string' }, app: { type: 'string' }, why }, required: ['combo', 'why'] } },
@@ -32,7 +32,13 @@ export const TOOLS: ToolSpec[] = [
 
 const POINTER_ACTIONS: PointerAction[] = ['click', 'double-click', 'triple-click', 'right-click', 'middle-click', 'move', 'drag', 'scroll'];
 
-export type ToolResult = { ok: boolean; text: string; image?: { data: string; mimeType: string } };
+/** `screen`: the answer already ends with the screen after the step (read in the same start of the engine). */
+export type ToolResult = { ok: boolean; text: string; image?: { data: string; mimeType: string }; screen?: boolean };
+
+/** Steps the engine can take, pause after and look again in one start (its batch). */
+const BATCH_ACTS = new Set(['click', 'double-click', 'triple-click', 'right-click']);
+/** The words before the screen that comes back with a step. */
+export const SCREEN_NOW = '\n\nThe screen now (fresh refs):\n';
 
 const MAX = 40_000;
 const shown = (e: Envelope, as?: 'screen' | 'matches', o: ScreenOptions = {}) => {
@@ -45,9 +51,24 @@ const shown = (e: Envelope, as?: 'screen' | 'matches', o: ScreenOptions = {}) =>
 export type LogEntry = { at: string; task?: string; source: string; verb: string; app?: string; target?: string; tier: string; allowed: boolean; ok?: boolean; note?: string };
 export type Logger = (e: Omit<LogEntry, 'at'>) => void;
 
-export async function runTool(name: string, input: any, ctx: { engine: Engine; gate: Gate; source: string; log?: Logger }): Promise<ToolResult> {
+/** `after`: read this app's screen right after a click or a key, in the same start of the engine, and put it
+ *  in the answer (the look passes the gate like any look). */
+export async function runTool(name: string, input: any, ctx: { engine: Engine; gate: Gate; source: string; log?: Logger; after?: Look }): Promise<ToolResult> {
   const { engine, gate, source } = ctx;
   const log: Logger = ctx.log ?? (() => {});
+  // The look after a step is checked first, like any look: if it may not happen, the step runs alone.
+  let after: Look | undefined;
+  if (ctx.after && (name === 'ands_act' || name === 'ands_press')) {
+    const lv = await gate.check({ verb: 'look', app: ctx.after.app });
+    if (lv.allowed) after = ctx.after;
+  }
+  let screen: Envelope | undefined;
+  const withScreen = async (r: ToolResult): Promise<ToolResult> => {
+    if (!r.ok || !screen) return r;
+    log({ task: gate.task, source, verb: 'look', app: after?.app, tier: 'read', allowed: true, ok: screen.ok });
+    if (!screen.ok) return r;
+    return { ...r, text: `${r.text}${SCREEN_NOW}${shown(screen, 'screen')}`, screen: true };
+  };
   const act = async (action: Action, run: () => Promise<Envelope>, as?: 'screen' | 'matches', so?: ScreenOptions): Promise<ToolResult> => {
     const v: Verdict = await gate.check(action);
     const target = action.target ? `${action.target.role}: ${action.target.name}` : action.ref;
@@ -79,10 +100,13 @@ export async function runTool(name: string, input: any, ctx: { engine: Engine; g
       const value = ['type', 'set-value', 'select'].includes(verb) ? String(input.value ?? '') : undefined;
       const ref = engine.full(input.ref);
       const target = engine.refs.get(ref);
-      const r = await act({ verb: verb === 'set-value' ? 'set_value' : verb, app: input.app, ref, target, value, why: input.why },
-        () => engine.act(verb, ref, value, extra));
+      const plain = () => engine.act(verb, ref, value, extra);
+      const run = after && BATCH_ACTS.has(verb)
+        ? async () => { const b = await engine.thenLook({ command: verb, args: { ref_id: ref } }, plain, after); screen = b.screen; return b.act; }
+        : plain;
+      const r = await act({ verb: verb === 'set-value' ? 'set_value' : verb, app: input.app, ref, target, value, why: input.why }, run);
       if (r.ok) engine.lastTyped = verb === 'type' || verb === 'set-value' ? target : undefined;
-      return r;
+      return withScreen(r);
     }
     case 'ands_mouse': {
       const action = String(input.action ?? '') as PointerAction;
@@ -124,9 +148,13 @@ export async function runTool(name: string, input: any, ctx: { engine: Engine; g
     case 'ands_press': {
       // Return is judged by the field it lands in: the one just typed into (from the screen, never from the model).
       const target = /^(return|enter)$/i.test(String(input.combo ?? '')) ? engine.lastTyped : undefined;
-      const r = await act({ verb: 'press', app: input.app, value: input.combo, target, why: input.why }, () => engine.press(input.combo, input.app));
+      const plain = () => engine.press(input.combo, input.app);
+      const run = after && !(engine.background && !input.app)
+        ? async () => { const b = await engine.thenLook({ command: 'press', args: { combo: String(input.combo), ...(input.app ? { app: input.app } : {}) } }, plain, after); screen = b.screen; return b.act; }
+        : plain;
+      const r = await act({ verb: 'press', app: input.app, value: input.combo, target, why: input.why }, run);
       engine.lastTyped = undefined;
-      return r;
+      return withScreen(r);
     }
     case 'ands_apps':
       if (input.action === 'list') return act({ verb: 'apps' }, () => engine.listApps());
