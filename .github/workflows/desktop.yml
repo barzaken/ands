@@ -85,11 +85,9 @@ jobs:
         run: |
           echo "TAURI_SIGNING_PRIVATE_KEY=${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" >> "$GITHUB_ENV"
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-          echo '{"bundle":{"createUpdaterArtifacts":true}}' > apps/desktop/updater.conf.json
       - name: Build
         working-directory: apps/desktop
-        shell: bash
-        run: npx tauri build --target ${{ matrix.target }} $([ -f updater.conf.json ] && echo --config updater.conf.json)
+        run: npx tauri build --target ${{ matrix.target }}
       - name: Check the Mac app's signature
         if: runner.os == 'macOS'
         shell: bash
@@ -114,12 +112,24 @@ jobs:
           file-digest: SHA256
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
-      # Signing changed the installer, so its updater signature is made again.
-      - name: Updater signature after Windows signing
-        if: runner.os == 'Windows' && env.HAS_AZURE == 'true' && env.HAS_UPDATER == 'true'
+      # The updater's files, signed with the updater key after any other signing (the app checks this
+      # signature before it installs a new version): the Mac app as .app.tar.gz, the Windows installer and
+      # the Linux AppImage. Made here rather than by the bundler, so the app needs no updater settings at build.
+      - name: Updater files (only when the key exists)
+        if: env.HAS_UPDATER == 'true'
         working-directory: apps/desktop
         shell: bash
-        run: for f in src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe; do rm -f "$f.sig"; npx tauri signer sign "$f"; done
+        run: |
+          b=src-tauri/target/${{ matrix.target }}/release/bundle
+          files=()
+          if [ -d "$b/macos" ]; then
+            app=$(find "$b/macos" -maxdepth 1 -name '*.app' | head -1)
+            COPYFILE_DISABLE=1 tar -czf "$app.tar.gz" -C "$b/macos" "$(basename "$app")"
+            files+=("$app.tar.gz")
+          fi
+          for f in "$b"/nsis/*-setup.exe "$b"/appimage/*.AppImage; do [ -f "$f" ] && files+=("$f"); done
+          for f in "${files[@]}"; do rm -f "$f.sig"; npx tauri signer sign "$f"; done
+          ls -l "${files[@]/%/.sig}"
       - uses: actions/upload-artifact@v4
         with:
           name: ands-${{ matrix.target }}
