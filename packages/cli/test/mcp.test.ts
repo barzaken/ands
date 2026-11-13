@@ -22,7 +22,7 @@ test('initialize, list tools, and ask through elicitation before a sensitive cli
   assert.equal(sent[0].result.protocolVersion, '2025-06-18');
   assert.equal(sent[0].result.serverInfo.name, 'ands');
   await s.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
-  assert.deepEqual(sent[1].result.tools.map((t: any) => t.name), ['ands_look', 'ands_act', 'ands_press', 'ands_mouse', 'ands_type', 'ands_wait', 'ands_apps', 'ands_clipboard', 'ands_screenshot',
+  assert.deepEqual(sent[1].result.tools.map((t: any) => t.name), ['ands_look', 'ands_act', 'ands_press', 'ands_mouse', 'ands_type', 'ands_wait', 'ands_apps', 'ands_clipboard', 'ands_screenshot', 'ands_steps',
     'ands_phones', 'ands_phone_look', 'ands_phone_tap', 'ands_phone_type', 'ands_phone_swipe', 'ands_phone_button', 'ands_phone_apps', 'ands_phone_screenshot']);
   assert.ok(sent[1].result.tools.filter((t: any) => !t.name.startsWith('ands_phone')).every((t: any) => t.inputSchema.properties.agent));
   await s.handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'ands_look', arguments: { app: 'Mail' } } });
@@ -99,4 +99,36 @@ test('phone tools reach the phone through the same gate', async () => {
   await s.handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'ands_phone_tap', arguments: { x: 10, y: 10, why: 'x' } } });
   assert.equal(sent[2].result.isError, true);
   assert.match(sent[2].result.content[0].text, /said no/);
+});
+
+test('a click in a named app answers with the new screen, and ands_steps runs a sequence in one call', async () => {
+  const seen: string[][] = [];
+  const run = async (args: string[]) => {
+    seen.push(args);
+    const cmd = args.find((a) => ['session', 'snapshot', 'batch', 'cursor-overlay'].includes(a));
+    if (cmd === 'session') return { ok: true, data: { session_id: 'run-1' } };
+    const tree = { role: 'window', name: 'Notes', children: [{ role: 'textfield', name: 'Title', ref_id: '@s:e1' }, { role: 'button', name: 'Done', ref_id: '@s:e2' }] };
+    if (cmd === 'snapshot') return { ok: true, data: { tree } };
+    if (cmd === 'batch') return { ok: true, data: { results: [{ ok: true, data: {} }, { ok: true, data: {} }, { ok: true, data: { tree: { role: 'window', name: 'Notes saved' } } }] } };
+    return { ok: true, data: {} };
+  };
+  const sent: any[] = [];
+  const s = new McpServer((m) => sent.push(m), run);
+  await s.handle({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } });
+  s.gate.trust = 'autopilot';
+  await s.handle({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ands_look', arguments: { app: 'Notes' } } });
+  await s.handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'ands_act', arguments: { action: 'click', ref: 'e2', why: 'close' } } });
+  assert.match(sent.at(-1).result.content[0].text, /The screen now \(fresh refs\):[\s\S]*Notes saved/);
+  await s.handle({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'ands_steps', arguments: { app: 'Notes', steps: [
+    { tool: 'ands_act', input: { action: 'type', ref: 'e1', value: 'Groceries', why: 'title' } },
+    { tool: 'ands_press', input: { combo: 'return', why: 'save' } },
+  ] } } });
+  const text = sent.at(-1).result.content[0].text;
+  assert.equal(sent.at(-1).result.isError, false);
+  assert.match(text, /step 1:/);
+  assert.match(text, /Notes saved/);
+  const batch = JSON.parse(seen.findLast((a) => a.includes('batch'))!.at(seen.findLast((a) => a.includes('batch'))!.indexOf('batch') + 1)!);
+  assert.deepEqual(batch[0], { command: 'press', args: { combo: 'return', app: 'Notes' } });
+  await s.handle({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'ands_steps', arguments: { steps: [{ tool: 'ands_look', input: {} }] } } });
+  assert.equal(sent.at(-1).result.isError, true);
 });

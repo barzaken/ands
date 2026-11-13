@@ -311,3 +311,54 @@ test('typing where the keyboard is pastes the text into the named app; reading a
   assert.ok(read.text.includes(long));
   assert.equal(classify({ verb: 'wait' }), 'read');
 });
+
+test('a click, a short pause and the new screen go in one start of the engine, after the gate allowed the click and the look', async () => {
+  const tree1 = { role: 'window', name: 'Shop', children: [{ ref_id: '@s1:e1', role: 'button', name: 'Next' }] };
+  const tree2 = { role: 'window', name: 'Shop', children: [{ ref_id: '@s2:e1', role: 'button', name: 'Pay now' }] };
+  const seen: string[][] = [];
+  const engine = new Engine(async (args): Promise<Envelope> => {
+    seen.push(args);
+    if (args[3] === 'snapshot') return { ok: true, data: { app: 'Safari', complete: true, tree: tree1 } };
+    if (args[3] === 'batch') return { ok: true, data: { results: [{ ok: true, data: {} }, { ok: true, data: { waited_ms: 80 } }, { ok: true, data: { app: 'Safari', complete: true, tree: tree2 } }] } };
+    return { ok: true, data: {} };
+  }, ['--headed', '--session', 's1']);
+  const checked: string[] = [];
+  const gate = new Gate({ trust: 'ask_important', approver: async () => 'yes' });
+  const check = gate.check.bind(gate);
+  gate.check = async (a) => { checked.push(a.verb); return check(a); };
+  await runTool('ands_look', { app: 'Safari' }, { engine, gate, source: 'test' });
+  const r = await runTool('ands_act', { action: 'click', ref: 'e1', app: 'Safari', why: 'next page' }, { engine, gate, source: 'test', after: { app: 'Safari' } });
+  assert.equal(r.ok, true);
+  assert.equal(r.screen, true);
+  assert.match(r.text, /The screen now \(fresh refs\):\nSafari\nwindow "Shop"\n  button "Pay now" e1/);
+  assert.deepEqual(seen.at(-1)!.slice(0, 4), ['--headed', '--session', 's1', 'batch']);
+  const entries = JSON.parse(seen.at(-1)![4]);
+  assert.deepEqual(entries.map((e: any) => e.command), ['click', 'wait', 'snapshot']);
+  assert.deepEqual(entries[0].args, { ref_id: '@s1:e1' });
+  assert.equal(entries[2].args.app, 'Safari');
+  assert.ok(seen.at(-1)!.includes('--stop-on-error'));
+  // The look was checked before the click; the new screen's refs are the ones the gate knows now.
+  assert.deepEqual(checked, ['look', 'look', 'click']);
+  assert.equal(engine.refs.get(engine.full('e1'))?.name, 'Pay now');
+});
+
+test('a batch the engine refuses, or a click that needs the real pointer, falls back to the usual step without a screen', async () => {
+  for (const batch of [{ ok: false, error: { code: 'INVALID_ARGS', message: 'unknown command' } }, { ok: true, data: { results: [{ ok: false, error: { code: 'POLICY_DENIED', message: 'needs hands', disposition: { retry: 'safe' } } }] } }] as Envelope[]) {
+    const seen: string[] = [];
+    const engine = new Engine(async (args): Promise<Envelope> => { seen.push(args[0]); return args[0] === 'batch' ? batch : { ok: true, data: {} }; });
+    const gate = new Gate({ trust: 'autopilot', approver: async () => 'yes' });
+    const r = await runTool('ands_act', { action: 'click', ref: '@s:e1', why: 'x' }, { engine, gate, source: 'test', after: { app: 'Mail' } });
+    assert.equal(r.ok, true);
+    assert.equal(r.screen, undefined);
+    assert.deepEqual(seen, ['batch', 'click']);
+  }
+});
+
+test('a step the gate refuses never reaches the engine, batch or not', async () => {
+  const seen: string[] = [];
+  const engine = new Engine(async (args): Promise<Envelope> => { seen.push(args[0]); return { ok: true, data: {} }; });
+  const gate = new Gate({ trust: 'ask_all', approver: async () => 'no' });
+  const r = await runTool('ands_press', { combo: 'return', app: 'Mail', why: 'send' }, { engine, gate, source: 'test', after: { app: 'Mail' } });
+  assert.equal(r.ok, false);
+  assert.deepEqual(seen, []);
+});

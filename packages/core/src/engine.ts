@@ -26,6 +26,8 @@ function collectBoxes(tree: any, into: Map<string, Box>) {
 }
 
 export type Runner = (args: string[], timeoutMs?: number) => Promise<Envelope>;
+/** The screen to read right after a step: which app or window, how long to let it draw first. */
+export type Look = { app?: string; windowId?: string; waitMs?: number; timeoutMs?: number };
 
 /** Collects every ref in a snapshot tree with its role and name, so the gate can tell what an action touches. */
 export function collectRefs(tree: any, into = new Map<string, RefInfo>()): Map<string, RefInfo> {
@@ -145,14 +147,40 @@ export class Engine {
     if (o.compact !== false) a.push('--compact');
     if (o.skeleton) a.push('--skeleton');
     if (o.bounds) a.push('--include-bounds');
-    const e = await this.run(a);
+    return this.took(await this.run(a), !!o.root);
+  }
+  /** Remembers the refs and places of a screen just read. */
+  private took(e: Envelope, part = false): Envelope {
     if (e.ok) {
       // A new screen: short refs now mean its elements (a full look, not a drill into one part).
-      if (!o.root) { this.short.clear(); this.boxes.clear(); }
+      if (!part) { this.short.clear(); this.boxes.clear(); }
       collectBoxes(e.data?.tree, this.boxes);
       for (const [ref, info] of collectRefs(e.data?.tree)) this.remember(ref, info);
     }
     return e;
+  }
+
+  /**
+   * One step, a short pause and the new screen, in one start of the engine (its `batch`) instead of three.
+   * Only for a step the engine takes as is (a click or a key); anything else, or an engine that refuses the
+   * batch, goes the usual way through `fallback`, and then no screen comes back. The caller has already
+   * passed both the step and the look through the gate.
+   */
+  async thenLook(first: { command: string; args: Record<string, unknown> }, fallback: () => Promise<Envelope>, look: Look = {}): Promise<{ act: Envelope; screen?: Envelope }> {
+    const snap: Record<string, unknown> = { interactive_only: true, compact: true, timeout_ms: look.timeoutMs ?? 5000 };
+    if (look.app) snap.app = look.app;
+    if (look.windowId) snap.window_id = look.windowId;
+    const entries = [first, { command: 'wait', args: { ms: Math.max(0, Math.round(look.waitMs ?? 80)) } }, { command: 'snapshot', args: snap }];
+    const b = await this.run(['batch', JSON.stringify(entries), '--stop-on-error', '--timeout-ms', '20000']).catch(() => undefined);
+    const results: Envelope[] | undefined = b?.ok && Array.isArray(b.data?.results) ? b.data.results : undefined;
+    const act = results?.[0];
+    // No batch (an older engine, a refused entry), or the step needs the real hands or the pointer: the usual way.
+    if (!act || !act.ok) {
+      if (act && !needsHands(act) && !notReachable(act)) return { act };
+      return { act: await fallback() };
+    }
+    const screen = results[2];
+    return { act, screen: screen ? this.took(screen) : undefined };
   }
   /** Elements whose name or text contains `text` (and of `role`, when given), with refs to act on. */
   async find(o: { app?: string; windowId?: string; text: string; role?: string }) {
